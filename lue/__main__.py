@@ -333,7 +333,8 @@ async def main():
         lang = args.lang if hasattr(args, 'lang') else None
         tts_instance = tts_manager.create_model(args.tts, console, voice=voice, lang=lang)
 
-    reader = Lue(args.file_path, tts_model=tts_instance, overlap=args.over)
+    reader = Lue(args.file_path, tts_model=tts_instance, overlap=args.over,
+                 tts_manager=tts_manager, available_tts=available_tts)
     if hasattr(args, 'speed'):
         reader.playback_speed = args.speed
         

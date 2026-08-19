@@ -162,6 +162,8 @@ def _process_normal_key(reader, data):
     cmd = None
     if _matches_shortcut(data, app_shortcuts.get("toggle_recent_menu", "r")):
         cmd = 'toggle_recent_menu'
+    elif _matches_shortcut(data, app_shortcuts.get("open_start_menu", "o")):
+        cmd = 'open_start_menu'
     elif _matches_shortcut(data, app_shortcuts.get("select_menu_item", "\n")) or data == '\r':
         cmd = 'select_menu_item'
     elif _matches_shortcut(data, tts_shortcuts.get("play_pause", "p")):

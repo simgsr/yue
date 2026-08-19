@@ -5,22 +5,34 @@ import re
 import signal
 import logging
 import subprocess
+import termios
+import tty
 from rich.console import Console
 from rich.text import Text
 import platformdirs
 
 from . import config, content_parser, progress_manager, audio, ui, input_handler
+from .start_menu import run_start_menu
 from .tts.base import TTSBase
 
 class Lue:
-    def __init__(self, file_path, tts_model: TTSBase | None, overlap: float | None = None):
+    def __init__(self, file_path, tts_model: TTSBase | None, overlap: float | None = None,
+                 tts_manager=None, available_tts=None):
         self.console = Console()
         self.loop = None
         self.file_path = file_path
         self.book_title = os.path.splitext(os.path.basename(file_path))[0]
         self.progress_file = progress_manager.get_progress_file_path(self.book_title)
         self.overlap_override = overlap
-        
+        self.tts_manager = tts_manager
+        self.available_tts = available_tts
+        # Capture cooked-mode terminal state before __main__ calls tty.setcbreak,
+        # so the start menu can restore it when re-opened from the reader.
+        try:
+            self._orig_termios = termios.tcgetattr(sys.stdin.fileno())
+        except Exception:
+            self._orig_termios = None
+
         self._initialize_state()
         self._initialize_tts(tts_model)
         self._load_content()
@@ -1270,7 +1282,141 @@ class Lue:
         self.running = False
         if self.loop and self.loop.is_running(): self.loop.call_soon_threadsafe(self._post_command_sync, 'quit')
 
+    async def _open_start_menu(self):
+        """Re-open the start menu from inside the reader.
 
+        Lets the user change the book file and TTS settings (model, voice,
+        language, speed) without quitting. The terminal is handed back to
+        run_start_menu (cooked mode, no alt screen) and restored afterwards.
+        """
+        if getattr(self, '_start_menu_active', False):
+            return
+        self._start_menu_active = True
+        fd = sys.stdin.fileno()
+        loop = self.loop
+        result = None
+        try:
+            # Pause playback and persist current position before tearing down.
+            self._save_extended_progress()
+            if not self.is_paused:
+                self.is_paused = True
+                self._save_extended_progress()
+                await audio.stop_and_clear_audio(self)
+
+            # Close overlays and cancel background renderer tasks.
+            self.show_recent_menu = False
+            self.show_chapter_index = False
+            tasks_to_cancel = [
+                self.smooth_scroll_task, self.ui_update_task, self.word_update_task,
+                self.pending_restart_task, self.current_pause_toggle_task,
+            ]
+            for task in tasks_to_cancel:
+                if task and not task.done():
+                    task.cancel()
+                    try:
+                        await asyncio.wait_for(task, timeout=1.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass
+
+            # Hand the terminal back to the menu (reader stops reading stdin).
+            loop.remove_reader(fd)
+            if self._orig_termios is not None:
+                termios.tcsetattr(fd, termios.TCSADRAIN, self._orig_termios)
+            sys.stdout.write('\033[?1049l\033[?1000l\033[?1002l\033[?1006l\033[?25h')
+            sys.stdout.flush()
+
+            result = await run_start_menu(
+                self.console,
+                self.available_tts or [],
+                start_dir=os.path.dirname(self.file_path) if self.file_path else None,
+                preselect_file=self.file_path,
+                default_tts=self.tts_model.name if self.tts_model else None,
+                default_voice=self.tts_voice,
+                default_lang=getattr(self.tts_model, 'lang', None) if self.tts_model else None,
+                default_speed=self.playback_speed,
+                guided=False,
+            )
+
+            if result is not None:
+                await self._apply_menu_result(result)
+        except Exception as e:
+            logging.error(f"Error in start menu session: {e}", exc_info=True)
+        finally:
+            self._start_menu_active = False
+            self._restore_reader_environment()
+            if not self.is_paused:
+                try:
+                    await audio.play_from_current_position(self)
+                except Exception:
+                    pass
+
+    def _restore_reader_environment(self):
+        """Re-establish the reader's terminal state and background tasks."""
+        fd = sys.stdin.fileno()
+        signal.signal(signal.SIGWINCH, self._handle_resize)
+        signal.signal(signal.SIGINT, self._handle_exit_signal)
+        signal.signal(signal.SIGTERM, self._handle_exit_signal)
+        try:
+            tty.setcbreak(fd)
+        except Exception:
+            pass
+        # Re-enter alt screen, re-enable mouse tracking, hide cursor.
+        sys.stdout.write('\033[?1049h\033[?1000h\033[?1002h\033[?1006h\033[?25l')
+        sys.stdout.flush()
+        loop = asyncio.get_running_loop()
+        loop.add_reader(fd, input_handler.process_input, self)
+        self.ui_update_task = asyncio.create_task(self._ui_update_loop())
+        self.word_update_task = asyncio.create_task(self._word_update_loop())
+
+    async def _apply_menu_result(self, result):
+        """Apply a MenuResult returned from the start menu."""
+        tts_changed = False
+
+        # TTS model + voice + language.
+        if result.tts_name == "none":
+            if self.tts_model is not None:
+                await audio.stop_and_clear_audio(self)
+                self.tts_model = None
+                self.tts_voice = None
+                self.is_paused = True
+                tts_changed = True
+        elif self.tts_manager is not None:
+            needs_recreate = (
+                self.tts_model is None
+                or self.tts_model.name != result.tts_name
+                or self.tts_voice != result.voice
+                or getattr(self.tts_model, 'lang', None) != result.lang
+            )
+            if needs_recreate:
+                await audio.stop_and_clear_audio(self)
+                model = self.tts_manager.create_model(
+                    result.tts_name, self.console, voice=result.voice, lang=result.lang
+                )
+                if model:
+                    initialized = await model.initialize()
+                    if initialized:
+                        await model.warm_up()
+                        self.tts_model = model
+                        self.tts_voice = result.voice
+                    else:
+                        self.tts_model = None
+                        self.tts_voice = None
+                        self.is_paused = True
+                tts_changed = True
+
+        # Speed.
+        if result.speed != self.playback_speed:
+            self.playback_speed = result.speed
+            tts_changed = True
+
+        # Book file (saves progress, loads content; leaves pause state as-is).
+        if result.file_path and result.file_path != self.file_path:
+            await self._switch_book(result.file_path)
+            tts_changed = True
+
+        if tts_changed:
+            self._save_extended_progress()
+            asyncio.create_task(ui.display_ui(self))
 
     async def run(self):
         self.loop = asyncio.get_running_loop()
@@ -1331,6 +1477,10 @@ class Lue:
                         self._save_extended_progress()
                         await audio.stop_and_clear_audio(self)
                 asyncio.create_task(ui.display_ui(self))
+                continue
+
+            if cmd == 'open_start_menu':
+                await self._open_start_menu()
                 continue
 
             if self.show_chapter_index:

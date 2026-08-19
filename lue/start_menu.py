@@ -14,6 +14,7 @@ import tty
 import collections
 from dataclasses import dataclass, field
 
+from rich.align import Align
 from rich.console import Console, Group
 from rich.text import Text
 from rich.panel import Panel
@@ -26,6 +27,10 @@ from . import ui, config, progress_manager, settings
 # Supported book extensions - must match content_parser.extract_content exactly.
 START_MENU_EXTENSIONS = (".epub", ".pdf", ".txt", ".docx", ".html", ".rtf", ".md")
 
+# Chinese + English lead every language list and are the out-of-the-box
+# selection (kokoro splits English into American "a" / British "b").
+PINNED_LANGS = {"edge": ["zh", "en"], "kokoro": ["z", "a"]}
+
 # Kokoro language codes (see VOICES.md and kokoro pipeline LANG_CODES).
 KOKORO_LANG_CODES = {
     "a": "American English",
@@ -37,6 +42,30 @@ KOKORO_LANG_CODES = {
     "p": "Brazilian Portuguese",
     "j": "Japanese",
     "z": "Mandarin Chinese",
+}
+
+# Human-readable names for the ISO-639 codes Edge locales reduce to. Only used
+# for display in the setup wizard; unknown codes simply show the code itself.
+LANG_NAMES = {
+    "af": "Afrikaans", "am": "Amharic", "ar": "Arabic", "az": "Azerbaijani",
+    "bg": "Bulgarian", "bn": "Bengali", "bs": "Bosnian", "ca": "Catalan",
+    "cs": "Czech", "cy": "Welsh", "da": "Danish", "de": "German",
+    "el": "Greek", "en": "English", "es": "Spanish", "et": "Estonian",
+    "fa": "Persian", "fi": "Finnish", "fil": "Filipino", "fr": "French",
+    "ga": "Irish", "gl": "Galician", "gu": "Gujarati", "he": "Hebrew",
+    "hi": "Hindi", "hr": "Croatian", "hu": "Hungarian", "hy": "Armenian",
+    "id": "Indonesian", "is": "Icelandic", "it": "Italian", "ja": "Japanese",
+    "jv": "Javanese", "ka": "Georgian", "kk": "Kazakh", "km": "Khmer",
+    "kn": "Kannada", "ko": "Korean", "lo": "Lao", "lt": "Lithuanian",
+    "lv": "Latvian", "mk": "Macedonian", "ml": "Malayalam", "mn": "Mongolian",
+    "mr": "Marathi", "ms": "Malay", "mt": "Maltese", "my": "Burmese",
+    "nb": "Norwegian", "ne": "Nepali", "nl": "Dutch", "pl": "Polish",
+    "ps": "Pashto", "pt": "Portuguese", "ro": "Romanian", "ru": "Russian",
+    "si": "Sinhala", "sk": "Slovak", "sl": "Slovenian", "so": "Somali",
+    "sq": "Albanian", "sr": "Serbian", "su": "Sundanese", "sv": "Swedish",
+    "sw": "Swahili", "ta": "Tamil", "te": "Telugu", "th": "Thai",
+    "tr": "Turkish", "uk": "Ukrainian", "ur": "Urdu", "uz": "Uzbek",
+    "vi": "Vietnamese", "zh": "Chinese", "zu": "Zulu",
 }
 
 # Static Kokoro voice list per language code (Kokoro exposes no runtime list).
@@ -111,6 +140,19 @@ class Row:
 
 
 @dataclass
+class LangPickerState:
+    """State for the full-screen multi-select language popup.
+
+    options holds (code, label) rows like the wizard's language list; the
+    selection itself lives on MenuState (edge_sel / kokoro_sel) and is toggled
+    live so the Language field reflects changes the moment the popup closes.
+    """
+
+    options: list[tuple[str, str]]
+    cursor: int = 0
+
+
+@dataclass
 class MenuState:
     """All mutable state for the start menu."""
 
@@ -126,16 +168,16 @@ class MenuState:
     edge_voices: list[dict] = field(default_factory=list)
     edge_voice_idx: int = 0
     voice_filter: str = ""
-    kokoro_lang: str = "a"
     kokoro_voice_idx: int = 0
     speed: float = 1.0
     field_cursor: int = 0
     default_dir: str = ""           # persisted default start folder ("" = unset)
-    folder_draft: str = ""          # in-progress path text for the Folder field
-    edge_lang: str = ""             # selected edge language code ("" = all voices)
+    edge_sel: list[str] = field(default_factory=list)  # selected edge codes ([] = all)
     edge_langs: list[str] = field(default_factory=list)  # available edge language codes
+    kokoro_sel: list[str] = field(default_factory=list)  # selected kokoro codes ([] = all)
+    lang_picker: LangPickerState | None = None  # when set, the popup owns render/keys
+    folder_picker: "FolderPickerState | None" = None  # ditto for the folder chooser
     status_msg: str | None = None   # transient feedback line (e.g. "Default folder set")
-    guided: bool = False            # first run: guide folder input, then language
 
 
 # ---------------------------------------------------------------------------
@@ -171,16 +213,25 @@ def _set_voice_index(state: MenuState, new_idx: int) -> None:
 
 
 def _current_voice_list(state: MenuState):
-    """Return ([(name, info)], current_index) for the active model, applying voice_filter."""
+    """Return ([(name, info)], current_index) for the active model, applying voice_filter.
+
+    With multi-select the language filter is a union: for edge only voices whose
+    locale is in edge_sel (all when empty); for kokoro the union of each selected
+    code's voices (all codes when empty).
+    """
     model = state.models[state.model_idx] if state.models else "none"
     flt = state.voice_filter.strip().lower()
     if model == "kokoro":
-        all_v = [(n, g) for n, g in KOKORO_VOICES.get(state.kokoro_lang, [])]
+        codes = state.kokoro_sel or list(KOKORO_LANG_CODES)
+        all_v = []
+        for code in codes:
+            all_v.extend((n, g) for n, g in KOKORO_VOICES.get(code, []))
     elif model == "edge":
+        sel = set(state.edge_sel)
         voices = state.edge_voices
-        if state.edge_lang:
+        if sel:
             voices = [v for v in voices
-                      if (v.get("Locale", "") or "").split("-")[0].lower() == state.edge_lang]
+                      if (v.get("Locale", "") or "").split("-")[0].lower() in sel]
         all_v = [(v.get("ShortName", ""), v.get("Gender", "")) for v in voices]
     else:
         return [], 0
@@ -243,71 +294,95 @@ def _folder_field_idx(state: MenuState) -> int | None:
     return _field_idx(state, "folder")
 
 
-def _leave_folder_if_idle(state: MenuState) -> None:
-    """If the cursor sits on the Folder field with nothing typed, hop past it.
-
-    The Folder field is a path-typing field, so landing on it blocks arrow
-    navigation. When the user moves into the settings pane (not guided, not
-    mid-typing), skip it so they land on a regular field instead.
-    """
-    folder_idx = _folder_field_idx(state)
-    if folder_idx is not None and state.field_cursor == folder_idx and not state.folder_draft:
-        state.field_cursor = min(folder_idx + 1, len(_settings_fields(state)) - 1)
-
-
-def _current_lang(state: MenuState) -> str:
-    """The active model's selected language code ("" when none / all)."""
+def _selected_langs(state: MenuState) -> list[str]:
+    """The active model's selected language codes ([] = all languages)."""
     model = state.models[state.model_idx] if state.models else "none"
     if model == "kokoro":
-        return state.kokoro_lang
+        return list(state.kokoro_sel)
     if model == "edge":
-        return state.edge_lang
-    return ""
+        return list(state.edge_sel)
+    return []
 
 
-def _persist_defaults(state: MenuState) -> None:
-    """Save the default start folder + selected language to settings.json."""
-    prefs = settings.load_settings()
-    prefs["default_start_dir"] = state.default_dir
-    prefs["default_language"] = _current_lang(state)
-    settings.save_settings(prefs)
-
-
-def _cycle_edge_lang(state: MenuState, delta: int) -> None:
-    """Cycle the edge language filter. Options are "" (all) then the codes."""
-    if not state.edge_langs:
-        return
-    opts = [""] + state.edge_langs
-    idx = opts.index(state.edge_lang) if state.edge_lang in opts else 0
-    state.edge_lang = opts[(idx + delta) % len(opts)]
+def _set_selected_langs(state: MenuState, codes: list[str]) -> None:
+    """Replace the active model's selected languages and reset the voice pick."""
+    model = state.models[state.model_idx] if state.models else "none"
+    if model == "kokoro":
+        state.kokoro_sel = [c for c in codes if c in KOKORO_LANG_CODES]
+    elif model == "edge":
+        state.edge_sel = [c for c in codes if c in state.edge_langs]
     state.voice_filter = ""
     _set_voice_index(state, 0)
 
 
-def _commit_folder(state: MenuState) -> None:
-    """Validate + persist the Folder field, then advance to the next field."""
-    draft = os.path.expanduser(state.folder_draft.strip())
-    if draft:
-        if not os.path.isdir(draft):
-            state.error_msg = f"Not a directory: {draft}"
-            state.folder_draft = draft
-            return
-        state.default_dir = os.path.abspath(draft)
-        state.folder_draft = ""
-        state.status_msg = f"Default folder set: {state.default_dir}"
-    elif not state.default_dir:
-        # Nothing typed: fall back to the directory the browser is showing.
-        state.default_dir = state.current_dir
-        state.status_msg = f"Default folder set: {state.default_dir}"
-    _persist_defaults(state)
-    fields = _settings_fields(state)
-    if state.guided and "lang" in fields:
-        # First run: after the folder, ask for a language next.
-        state.field_cursor = fields.index("lang")
-        state.guided = False
+def _lang_summary(state: MenuState) -> str:
+    """Human-readable summary of the active model's language selection."""
+    model = state.models[state.model_idx] if state.models else "none"
+    codes = _selected_langs(state)
+    if not codes:
+        return "All languages"
+    if model == "kokoro":
+        names = [f"{KOKORO_LANG_CODES.get(c, c)} ({c})" for c in codes]
+    elif model == "edge":
+        names = [f"{LANG_NAMES.get(c, c)} ({c})" for c in codes]
     else:
-        state.field_cursor = min(state.field_cursor + 1, len(fields) - 1)
+        names = list(codes)
+    return " + ".join(names)
 
+
+def _persist_defaults(state: MenuState) -> None:
+    """Save the default start folder + selected language(s) to settings.json."""
+    prefs = settings.load_settings()
+    prefs["default_start_dir"] = state.default_dir
+    prefs["default_language"] = _selected_langs(state)
+    settings.save_settings(prefs)
+
+
+def _parse_lang_value(value) -> list[str]:
+    """Normalize a persisted default_language (list or legacy string) to a list."""
+    if isinstance(value, list):
+        return [str(c) for c in value]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _set_default_dir(state: MenuState, path: str) -> None:
+    """Make `path` the persisted default start folder and browse there."""
+    state.default_dir = os.path.abspath(path)
+    _persist_defaults(state)
+    cd(state, state.default_dir)
+    state.status_msg = f"Default folder set: {state.default_dir}"
+
+
+def _open_folder_picker(state: MenuState) -> None:
+    """Open the browsable folder chooser on the best-known starting point."""
+    start = state.default_dir if os.path.isdir(state.default_dir or "") else state.current_dir
+    state.folder_picker = new_folder_picker(start)
+
+
+def _handle_folder_popup(state: MenuState, key) -> str:
+    """Handle a key/mouse event while the folder chooser popup is open."""
+    picker = state.folder_picker
+    height = ui.get_terminal_size()[1]
+    if isinstance(key, tuple) and key[0] == "mouse":
+        button, _x, y = key[1]
+        if button in (64, 65):
+            _folder_wheel(picker, -3 if button == 64 else 3)
+            return "continue"
+        if button != 0:
+            return "continue"
+        top = _folder_panel_geometry(picker, height)[0]
+        # panel top border + padding + header + blank line
+        outcome = _folder_click(picker, y, top + 4, height)
+    else:
+        outcome = _handle_folder_key(picker, key, height)
+    if outcome == "choose":
+        state.folder_picker = None
+        _set_default_dir(state, picker.cur_dir)
+    elif outcome == "cancel":
+        state.folder_picker = None
+    return "continue"
 
 
 
@@ -393,6 +468,349 @@ def _move_selection(state: MenuState, delta: int) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Folder chooser (shared by the setup wizard and the Folder field)
+# ---------------------------------------------------------------------------
+
+FOLDER_ROWS = 10  # max directory rows shown at once
+
+
+@dataclass
+class FolderPickerState:
+    """A browsable directory chooser with an optional typed-path mode.
+
+    Row 0 of the list is always the "use this folder" action; rows 1.. are
+    ".." plus the subdirectories of `cur_dir` (filtered by `filter_text`).
+    """
+
+    cur_dir: str
+    cursor: int = 0        # 0 = "use this folder", 1.. = entries[cursor - 1]
+    filter_text: str = ""
+    entries: list[tuple[str, str]] = field(default_factory=list)  # (label, path)
+    typing: bool = False   # True while the path text field has focus
+    draft: str = ""        # path text being typed
+    caret: int = 0         # caret position inside draft
+    error: str | None = None
+    note: str | None = None  # dim info line (completion matches, etc.)
+
+
+def _subdirs(path: str, flt: str) -> list[tuple[str, str]]:
+    """(label, abspath) for '..' plus the visible subdirectories of `path`."""
+    rows: list[tuple[str, str]] = []
+    parent = os.path.dirname(path)
+    if parent and parent != path:
+        rows.append(("..", parent))
+    names = []
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                if not _is_dir(entry):
+                    continue
+                # Hidden folders stay out of the way until they are searched for.
+                if entry.name.startswith(".") and not flt.startswith("."):
+                    continue
+                if flt and flt.lower() not in entry.name.lower():
+                    continue
+                names.append(entry.name)
+    except OSError:
+        return rows
+    names.sort(key=str.lower)
+    rows.extend((name + "/", os.path.join(path, name)) for name in names)
+    return rows
+
+
+def _folder_refresh(picker: FolderPickerState) -> None:
+    picker.entries = _subdirs(picker.cur_dir, picker.filter_text)
+    picker.cursor = max(0, min(picker.cursor, len(picker.entries)))
+
+
+def _folder_cd(picker: FolderPickerState, path: str) -> None:
+    path = os.path.abspath(path)
+    if not os.path.isdir(path):
+        picker.error = f"Not a folder: {path}"
+        return
+    picker.cur_dir = path
+    picker.filter_text = ""
+    picker.cursor = 0
+    picker.error = None
+    picker.note = None
+    _folder_refresh(picker)
+
+
+def new_folder_picker(start_dir: str) -> FolderPickerState:
+    """Build a chooser rooted at `start_dir` (falling back to $HOME)."""
+    start = os.path.abspath(start_dir) if start_dir else ""
+    if not os.path.isdir(start):
+        start = os.path.expanduser("~")
+    picker = FolderPickerState(cur_dir=start)
+    _folder_refresh(picker)
+    return picker
+
+
+def _folder_scroll(picker: FolderPickerState, height: int) -> tuple[int, int]:
+    """Return (first visible entry index, number of entry rows rendered)."""
+    total = len(picker.entries)
+    visible = max(1, min(FOLDER_ROWS, max(1, height - 14)))
+    ent = max(0, picker.cursor - 1)
+    start = max(0, ent - visible + 1) if ent >= visible else 0
+    start = min(start, max(0, total - visible))
+    return start, max(0, min(start + visible, total) - start)
+
+
+def _folder_body_height(picker: FolderPickerState, height: int) -> int:
+    """Rows `_folder_body` will produce — geometry and mouse hits depend on it."""
+    extra = (1 if picker.note else 0) + (1 if picker.error else 0)
+    if picker.typing:
+        return 3 + extra
+    _start, count = _folder_scroll(picker, height)
+    return 2 + 1 + count + 2 + extra
+
+
+def _folder_panel_geometry(picker: FolderPickerState, height: int) -> tuple[int, int, int]:
+    """(panel top row, panel height, content rows) for a folder-chooser panel.
+
+    Assumes two header lines (title + blank) above the body, which both the
+    wizard's step 1 and the standalone popup render.
+    """
+    content = 2 + _folder_body_height(picker, height)
+    panel_h = min(content + 4, max(5, height - 2))  # borders + vertical padding
+    top = max(1, (height - panel_h) // 2 + 1)
+    return top, panel_h, content
+
+
+def _folder_body(picker: FolderPickerState, inner: int, height: int) -> list[Text]:
+    """Render the chooser body (path line / directory list, hints, errors)."""
+    lines: list[Text] = []
+    if picker.typing:
+        row = Text("  Path: ", style="cyan")
+        vis = max(10, inner - 10)
+        before = picker.draft[:picker.caret][-vis:]
+        at = picker.draft[picker.caret:picker.caret + 1] or " "
+        after = picker.draft[picker.caret + 1:][:max(0, vis - len(before))]
+        row.append(before, style="bold white")
+        row.append(at, style="reverse bold cyan")
+        row.append(after, style="bold white")
+        lines.append(row)
+        lines.append(Text(""))
+        lines.append(Text(
+            _fit_tail("  Tab completes · Enter opens it · Esc back to the list", inner),
+            style="dim",
+        ))
+    else:
+        lines.append(Text("  In: " + _fit_tail(picker.cur_dir, inner - 6), style="dim"))
+        lines.append(Text(
+            "  Find: " + _fit_tail(picker.filter_text, inner - 8) if picker.filter_text else "",
+            style="yellow",
+        ))
+        use_row = Text("  ✓ " if picker.cursor == 0 else "    ")
+        use_row.append(
+            _fit_tail("Use this folder", inner - 4),
+            style="reverse bold green" if picker.cursor == 0 else "bold green",
+        )
+        lines.append(use_row)
+        start, count = _folder_scroll(picker, height)
+        for i in range(start, start + count):
+            label, _path = picker.entries[i]
+            is_cursor = (i + 1) == picker.cursor
+            row = Text("  > " if is_cursor else "    ")
+            row.append(
+                _fit_tail(label, inner - 4),
+                style="reverse bold cyan" if is_cursor else "",
+            )
+            lines.append(row)
+        lines.append(Text(""))
+        lines.append(Text(
+            _fit_tail("  ↑/↓ move · Enter open · ← up · type to find · Tab = path", inner),
+            style="dim",
+        ))
+    if picker.note:
+        lines.append(Text(_fit_tail(f"  {picker.note}", inner), style="dim"))
+    if picker.error:
+        lines.append(Text(_fit_tail(f"  {picker.error}", inner), style="bold red"))
+    return lines
+
+
+def _expand_path(text: str) -> str:
+    return os.path.expanduser(os.path.expandvars(text.strip()))
+
+
+def _folder_start_typing(picker: FolderPickerState, seed: str = "") -> None:
+    """Switch to path entry, pre-filled so the user edits instead of retypes."""
+    if seed == "~":
+        picker.draft = "~/"
+    elif seed == "/":
+        picker.draft = "/"
+    else:
+        picker.draft = picker.cur_dir.rstrip(os.sep) + os.sep
+    picker.caret = len(picker.draft)
+    picker.typing = True
+    picker.error = None
+    picker.note = None
+
+
+def _folder_complete(picker: FolderPickerState) -> None:
+    """Tab-completion: extend the draft to the longest matching folder name."""
+    raw = picker.draft
+    expanded = _expand_path(raw)
+    if raw.rstrip().endswith(os.sep):
+        head, stem = expanded or os.sep, ""
+    else:
+        head, stem = os.path.dirname(expanded) or ".", os.path.basename(expanded)
+    try:
+        with os.scandir(head) as it:
+            names = sorted(
+                (e.name for e in it
+                 if _is_dir(e)
+                 and e.name.lower().startswith(stem.lower())
+                 and (stem.startswith(".") or not e.name.startswith("."))),
+                key=str.lower,
+            )
+    except OSError:
+        names = []
+    if not names:
+        picker.note = None
+        picker.error = "No matching folder"
+        return
+    if len(names) == 1:
+        completed = os.path.join(head, names[0]) + os.sep
+        picker.note = None
+    else:
+        completed = os.path.join(head, os.path.commonprefix(names))
+        shown = ", ".join(names[:5]) + ("…" if len(names) > 5 else "")
+        picker.note = f"{len(names)} matches: {shown}"
+    picker.draft = completed
+    picker.caret = len(completed)
+    picker.error = None
+
+
+def _handle_folder_typing(picker: FolderPickerState, key, char, is_char: bool) -> str:
+    """Line editing for the typed-path mode. Returns 'continue' or 'choose'."""
+    draft, caret = picker.draft, picker.caret
+    if key == "esc":
+        picker.typing = False
+        picker.error = None
+        picker.note = None
+    elif key == "enter":
+        if not draft.strip():
+            picker.typing = False
+        else:
+            target = _expand_path(draft)
+            if os.path.isdir(target):
+                _folder_cd(picker, target)
+                picker.typing = False
+            else:
+                picker.error = f"Not a folder: {target}"
+    elif key == "tab":
+        _folder_complete(picker)
+    elif key == "backspace":
+        if caret > 0:
+            picker.draft = draft[:caret - 1] + draft[caret:]
+            picker.caret = caret - 1
+        picker.error = None
+    elif key == "left":
+        picker.caret = max(0, caret - 1)
+    elif key == "right":
+        picker.caret = min(len(draft), caret + 1)
+    elif key in ("home", "ctrl_a"):
+        picker.caret = 0
+    elif key in ("end", "ctrl_e"):
+        picker.caret = len(draft)
+    elif key == "ctrl_u":
+        picker.draft = draft[caret:]
+        picker.caret = 0
+        picker.error = None
+    elif key == "ctrl_w":
+        head = draft[:caret].rstrip(os.sep)
+        cut = head.rfind(os.sep)
+        head = head[:cut + 1] if cut >= 0 else ""
+        picker.draft = head + draft[caret:]
+        picker.caret = len(head)
+        picker.error = None
+    elif is_char:
+        picker.draft = draft[:caret] + char + draft[caret:]
+        picker.caret = caret + len(char)
+        picker.error = None
+        picker.note = None
+    return "continue"
+
+
+def _handle_folder_key(picker: FolderPickerState, key, height: int) -> str:
+    """One key for the chooser. Returns 'continue', 'choose' or 'cancel'."""
+    is_char = isinstance(key, tuple) and key[0] == "char"
+    char = key[1] if is_char else None
+
+    if picker.typing:
+        return _handle_folder_typing(picker, key, char, is_char)
+
+    last = len(picker.entries)  # cursor 0 = "use this folder", 1..last = entries
+    _start, count = _folder_scroll(picker, height)
+    page = max(1, count)
+    if key == "up":
+        picker.cursor = max(0, picker.cursor - 1)
+    elif key == "down":
+        picker.cursor = min(last, picker.cursor + 1)
+    elif key == "page_up":
+        picker.cursor = max(0, picker.cursor - page)
+    elif key == "page_down":
+        picker.cursor = min(last, picker.cursor + page)
+    elif key == "home":
+        picker.cursor = 0
+    elif key == "end":
+        picker.cursor = last
+    elif key in ("enter", "right"):
+        if picker.cursor == 0:
+            if key == "enter":
+                return "choose"
+        else:
+            _folder_cd(picker, picker.entries[picker.cursor - 1][1])
+    elif key in ("left", "backspace"):
+        if picker.filter_text:
+            picker.filter_text = picker.filter_text[:-1]
+            picker.cursor = 0
+            _folder_refresh(picker)
+        else:
+            _folder_cd(picker, os.path.dirname(picker.cur_dir))
+    elif key == "tab":
+        _folder_start_typing(picker)
+    elif key == "esc":
+        if picker.filter_text:
+            picker.filter_text = ""
+            picker.cursor = 0
+            _folder_refresh(picker)
+        else:
+            return "cancel"
+    elif is_char:
+        if char in ("/", "~") and not picker.filter_text:
+            _folder_start_typing(picker, char)
+        else:
+            picker.filter_text += char
+            picker.cursor = 0
+            picker.error = None
+            _folder_refresh(picker)
+    return "continue"
+
+
+def _folder_wheel(picker: FolderPickerState, delta: int) -> None:
+    if not picker.typing:
+        picker.cursor = max(0, min(len(picker.entries), picker.cursor + delta))
+
+
+def _folder_click(picker: FolderPickerState, y: int, first_body_row: int, height: int) -> str:
+    """Map a click at screen row `y` onto the list. Returns 'continue'/'choose'."""
+    if picker.typing:
+        return "continue"
+    start, count = _folder_scroll(picker, height)
+    row = y - (first_body_row + 2)  # skip the "In:" and filter lines
+    if row == 0:
+        picker.cursor = 0
+        return "choose"
+    idx = row - 1
+    if 0 <= idx < count:
+        picker.cursor = start + idx + 1
+        _folder_cd(picker, picker.entries[start + idx][1])
+    return "continue"
+
+
+# ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
 
@@ -471,30 +889,17 @@ def render_right_pane(state: MenuState, pane_height: int):
         field_table.add_row(label, str(value), style=row_style)
 
     folder_idx = _folder_field_idx(state) or 0
-    if state.folder_draft:
-        folder_val = state.folder_draft
-    elif state.default_dir:
-        folder_val = state.default_dir
-    else:
-        folder_val = "not set — type a path"
+    folder_val = state.default_dir or "not set"
+    if focused and cursor == folder_idx:
+        folder_val += " [Enter]"
     _add("Folder", folder_val, folder_idx)
 
     _add("Model", model, fields.index("model"))
     if vf_idx is not None:
         _add("Voice", _selected_voice_name(state), vf_idx)
-    if model == "kokoro":
-        lang_val = f"{KOKORO_LANG_CODES.get(state.kokoro_lang, state.kokoro_lang)} ({state.kokoro_lang})"
-        _add("Language", lang_val, fields.index("lang"))
-    elif model == "edge":
-        if state.edge_lang:
-            count = sum(
-                1 for v in state.edge_voices
-                if (v.get("Locale", "") or "").split("-")[0].lower() == state.edge_lang
-            )
-            lang_val = f"{state.edge_lang} ({count} voices)"
-        else:
-            lang_val = "All"
-        _add("Language", lang_val, fields.index("lang"))
+    if model in ("kokoro", "edge"):
+        lang_hint = " [Space]" if (focused and state.field_cursor == fields.index("lang")) else ""
+        _add("Language", _lang_summary(state) + lang_hint, fields.index("lang"))
     if model in ("edge", "kokoro"):
         _add("Speed", f"{state.speed:.1f}x", fields.index("speed"))
     if state.selected_file:
@@ -543,17 +948,26 @@ def render_right_pane(state: MenuState, pane_height: int):
 
 
 def render_footer(state: MenuState):
-    if state.guided and state.pane_focus == "settings":
-        hint = "Type a folder path, Enter to save · then pick a language · Esc/Tab to browse instead · q quit"
+    if state.pane_focus == "settings" and state.field_cursor == (_folder_field_idx(state) or 0):
+        hint = "Enter/Space = browse for your books folder · ↑/↓ other settings · Tab files"
     elif state.pane_focus == "files":
         hint = "↑/↓ move · Enter open/select · type to search · s = set default folder · Backspace up · Esc back/quit · q quit"
     else:
-        hint = "↑/↓ move · Enter next/launch · ←/→ or +/- adjust · Esc back · Tab/← files · q quit"
+        hint = "↑/↓ move · Enter next/launch · Space on Language = pick languages · Esc back · Tab/← files · q quit"
     return Panel(Text(hint, style="dim"), border_style="blue", box=box.ROUNDED)
 
 
 def render_menu(state: MenuState, width: int, height: int) -> str:
     """Render the full-screen menu to a string frame."""
+    if state.lang_picker is not None:
+        return render_lang_picker(state, width, height)
+    if state.folder_picker is not None:
+        return render_folder_panel(
+            state.folder_picker, width, height,
+            title="Default folder",
+            header="Where do you keep your books?",
+            hint=f"Current default: {state.default_dir or 'not set'}",
+        )
     main_h = max(1, height - 3)
     layout = Layout()
     layout.split_column(
@@ -581,6 +995,9 @@ def render_menu(state: MenuState, width: int, height: int) -> str:
 # ---------------------------------------------------------------------------
 # Input parsing
 # ---------------------------------------------------------------------------
+
+CTRL_KEYS = {0x01: "ctrl_a", 0x05: "ctrl_e", 0x15: "ctrl_u", 0x17: "ctrl_w"}
+
 
 def _drain_keys(buf: bytearray) -> list:
     """Consume complete key sequences from the front of the buffer."""
@@ -665,6 +1082,10 @@ def _drain_keys(buf: bytearray) -> list:
         elif b == 0x03:
             keys.append("ctrl_c")
             i += 1
+        elif b in CTRL_KEYS:
+            # Line-editing keys for the path field (Ctrl+A/E/U/W).
+            keys.append(CTRL_KEYS[b])
+            i += 1
         elif b < 0x20:
             i += 1  # ignore other control characters
         else:
@@ -711,30 +1132,26 @@ def _cycle_model(state: MenuState, delta: int) -> None:
     state.field_cursor = min(state.field_cursor, len(_settings_fields(state)) - 1)
 
 
-def _cycle_kokoro_lang(state: MenuState, delta: int) -> None:
-    codes = list(KOKORO_LANG_CODES.keys())
-    try:
-        idx = codes.index(state.kokoro_lang)
-    except ValueError:
-        idx = 0
-    state.kokoro_lang = codes[(idx + delta) % len(codes)]
-    state.voice_filter = ""
-    _set_voice_index(state, 0)
-
-
 def _adjust_field(state: MenuState, delta: int) -> None:
     fields = _settings_fields(state)
-    model = state.models[state.model_idx] if state.models else "none"
     if state.field_cursor == fields.index("model"):
         _cycle_model(state, delta)
-    elif "lang" in fields and state.field_cursor == fields.index("lang"):
-        if model == "kokoro":
-            _cycle_kokoro_lang(state, delta)
-        elif model == "edge":
-            _cycle_edge_lang(state, delta)
-        _persist_defaults(state)
     elif "speed" in fields and state.field_cursor == fields.index("speed"):
         state.speed = round(min(2.0, max(0.5, state.speed + 0.1 * delta)), 1)
+
+
+def _open_lang_picker(state: MenuState) -> None:
+    """Open the full-screen language multi-select popup for the active model."""
+    options = _wizard_lang_options(state)
+    if not options:
+        return
+    sel = set(_selected_langs(state))
+    cursor = 0
+    for i, (code, _label) in enumerate(options):
+        if code and code in sel:
+            cursor = i
+            break
+    state.lang_picker = LangPickerState(options=options, cursor=cursor)
 
 
 def _handle_mouse(state: MenuState, button: int, x: int, y: int) -> str:
@@ -794,6 +1211,11 @@ def _handle_mouse(state: MenuState, button: int, x: int, y: int) -> str:
         state.field_cursor = field_row
         if field_row == lf_idx and state.selected_file:
             return "launch"
+        lang_idx = fields.index("lang") if "lang" in fields else None
+        if lang_idx is not None and field_row == lang_idx:
+            _open_lang_picker(state)
+        elif field_row == (_folder_field_idx(state) or 0) and "folder" in fields:
+            _open_folder_picker(state)
         return "continue"
     if vf_idx is not None:
         names, sel = _current_voice_list(state)
@@ -813,36 +1235,15 @@ def handle_key(state: MenuState, key) -> str:
     """Handle one key token. Returns 'continue', 'launch', or 'quit'."""
     if key == "ctrl_c":
         return "quit"
+    if state.lang_picker is not None:
+        return _handle_picker(state, key)
+    if state.folder_picker is not None:
+        return _handle_folder_popup(state, key)
     if isinstance(key, tuple) and key[0] == "mouse":
         return _handle_mouse(state, key[1][0], key[1][1], key[1][2])
 
     is_char = isinstance(key, tuple)
     char = key[1] if is_char else None
-
-    # The Folder field is a path-typing field: while it is focused, letters
-    # are path text and must not be read as navigation or 'q'-to-quit.
-    if state.pane_focus == "settings":
-        folder_idx = _folder_field_idx(state)
-        if folder_idx is not None and state.field_cursor == folder_idx:
-            if key == "esc":
-                state.folder_draft = ""
-                state.error_msg = None
-                if state.field_cursor > 0:
-                    state.field_cursor -= 1
-                else:
-                    state.pane_focus = "files"
-            elif key == "backspace":
-                state.folder_draft = state.folder_draft[:-1]
-            elif key == "enter":
-                _commit_folder(state)
-            elif key == "tab":
-                state.folder_draft = ""
-                state.error_msg = None
-                state.pane_focus = "files"
-            elif is_char:
-                state.folder_draft += char
-                state.error_msg = None
-            return "continue"
 
     if char == "q":
         quitting = True
@@ -894,7 +1295,6 @@ def handle_key(state: MenuState, key) -> str:
                     return "quit"
         elif key == "tab" or key == "right" or char == "l":
             state.pane_focus = "settings"
-            _leave_folder_if_idle(state)
         elif char == "s":
             # Make the folder we're browsing the default start folder.
             state.default_dir = state.current_dir
@@ -916,23 +1316,29 @@ def handle_key(state: MenuState, key) -> str:
     lang_idx = fields.index("lang") if "lang" in fields else None
     speed_idx = fields.index("speed") if "speed" in fields else None
 
+    # On the Voice field, Up/Down cycles the voice only while a filter is
+    # narrowing the list (typing to search). With no filter the list is far
+    # too long to cycle and the arrows must move the field cursor instead —
+    # otherwise the Language field is unreachable from the Launch field, and
+    # the "change settings without quitting" flow gets stuck.
+    voice_cycling = vf_idx is not None and state.field_cursor == vf_idx and bool(state.voice_filter)
     if key == "up" or char == "k":
-        if vf_idx is not None and state.field_cursor == vf_idx:
+        if voice_cycling:
             _move_voice(state, -1)
         else:
             state.field_cursor = max(0, state.field_cursor - 1)
     elif key == "down" or char == "j":
-        if vf_idx is not None and state.field_cursor == vf_idx:
+        if voice_cycling:
             _move_voice(state, 1)
         else:
             state.field_cursor = min(len(fields) - 1, state.field_cursor + 1)
     elif key == "page_up":
-        if vf_idx is not None and state.field_cursor == vf_idx:
+        if voice_cycling:
             _move_voice(state, -10)
         else:
             state.field_cursor = 0
     elif key == "page_down":
-        if vf_idx is not None and state.field_cursor == vf_idx:
+        if voice_cycling:
             _move_voice(state, 10)
         else:
             state.field_cursor = len(fields) - 1
@@ -943,12 +1349,6 @@ def handle_key(state: MenuState, key) -> str:
     elif key == "left" or char == "h":
         if state.field_cursor == model_idx:
             _cycle_model(state, -1)
-        elif lang_idx is not None and state.field_cursor == lang_idx:
-            if model == "kokoro":
-                _cycle_kokoro_lang(state, -1)
-            else:
-                _cycle_edge_lang(state, -1)
-            _persist_defaults(state)
         elif speed_idx is not None and state.field_cursor == speed_idx:
             state.speed = max(0.5, round(state.speed - 0.1, 1))
         else:
@@ -956,12 +1356,6 @@ def handle_key(state: MenuState, key) -> str:
     elif key == "right" or char == "l":
         if state.field_cursor == model_idx:
             _cycle_model(state, 1)
-        elif lang_idx is not None and state.field_cursor == lang_idx:
-            if model == "kokoro":
-                _cycle_kokoro_lang(state, 1)
-            else:
-                _cycle_edge_lang(state, 1)
-            _persist_defaults(state)
         elif speed_idx is not None and state.field_cursor == speed_idx:
             state.speed = min(2.0, round(state.speed + 0.1, 1))
         else:
@@ -973,7 +1367,19 @@ def handle_key(state: MenuState, key) -> str:
     elif key == "enter":
         if state.field_cursor == lf_idx and state.selected_file:
             return "launch"
+        if lang_idx is not None and state.field_cursor == lang_idx:
+            _open_lang_picker(state)
+            return "continue"
+        if folder_idx is not None and state.field_cursor == folder_idx:
+            _open_folder_picker(state)
+            return "continue"
         state.field_cursor = (state.field_cursor + 1) % len(fields)
+    elif char == " " and lang_idx is not None and state.field_cursor == lang_idx:
+        _open_lang_picker(state)
+        return "continue"
+    elif char == " " and folder_idx is not None and state.field_cursor == folder_idx:
+        _open_folder_picker(state)
+        return "continue"
     elif key == "tab":
         state.pane_focus = "files"
     elif key == "backspace":
@@ -995,6 +1401,14 @@ def handle_key(state: MenuState, key) -> str:
     return "continue"
 
 
+def _kokoro_code_for_voice(voice: str) -> str:
+    """Return the KOKORO_LANG code whose voice list contains `voice`."""
+    for code, voices in KOKORO_VOICES.items():
+        if any(name == voice for name, _g in voices):
+            return code
+    return ""
+
+
 def _make_result(state: MenuState) -> MenuResult:
     model = state.models[state.model_idx] if state.models else "none"
     voice = None
@@ -1004,7 +1418,11 @@ def _make_result(state: MenuState) -> MenuResult:
         if names and 0 <= idx < len(names):
             voice = names[idx][0]
         if model == "kokoro":
-            lang = state.kokoro_lang
+            # The chosen voice pins the language even when several are
+            # selected; fall back to the first selected code if unknown.
+            lang = _kokoro_code_for_voice(voice) if voice else ""
+            if not lang and state.kokoro_sel:
+                lang = state.kokoro_sel[0]
     return MenuResult(
         file_path=os.path.abspath(state.selected_file) if state.selected_file else "",
         tts_name=model,
@@ -1015,11 +1433,514 @@ def _make_result(state: MenuState) -> MenuResult:
 
 
 # ---------------------------------------------------------------------------
+# Language multi-select popup
+# ---------------------------------------------------------------------------
+
+PICKER_LANG_ROWS = 10      # max language rows shown at once
+
+
+def _picker_window(picker: LangPickerState, height: int) -> tuple[int, int]:
+    """Return (first visible option index, visible row count) for the picker."""
+    total = len(picker.options)
+    visible = max(3, min(PICKER_LANG_ROWS, total, height - 12))
+    start = max(0, picker.cursor - visible + 1) if picker.cursor >= visible else 0
+    start = min(start, max(0, total - visible))
+    return start, visible
+
+
+def _picker_geometry(picker: LangPickerState, height: int) -> tuple[int, int, int]:
+    """Return (panel top row, panel height, rows of content) — rows 1-based."""
+    _start, visible = _picker_window(picker, height)
+    content = 3 + visible + 2
+    panel_h = content + 4  # borders (2) + vertical padding (2)
+    panel_h = min(panel_h, max(5, height - 2))
+    top = max(1, (height - panel_h) // 2 + 1)
+    return top, panel_h, content
+
+
+def _center_frame(panel, top: int, panel_h: int, hint: str, width: int, height: int) -> str:
+    """Center `panel` on an otherwise blank screen with a dim hint line below."""
+    layout = Layout()
+    layout.split_column(
+        Layout(name="top", size=max(0, top - 1)),
+        Layout(name="mid", size=panel_h),
+        Layout(name="hint", size=1),
+        Layout(name="bottom", ratio=1),
+    )
+    layout["top"].update(Text(""))
+    layout["mid"].update(Align.center(panel))
+    layout["hint"].update(Align.center(Text(hint, style="dim")))
+    layout["bottom"].update(Text(""))
+
+    temp_console = Console(width=width, height=height, force_terminal=True)
+    with temp_console.capture() as capture:
+        temp_console.print(layout, overflow="crop")
+    frame = capture.get().split("\n")
+    if len(frame) > height:
+        frame = frame[:height]
+    return "\033[?25l\033[H" + "\n".join(frame)
+
+
+def render_folder_panel(
+    picker: FolderPickerState, width: int, height: int, *,
+    title: str, header: str, hint: str,
+) -> str:
+    """Render the folder chooser centred on screen (wizard step 1 and popup)."""
+    top, panel_h, _content = _folder_panel_geometry(picker, height)
+    box_width = min(WIZARD_BOX_WIDTH, max(30, width - 4))
+    inner = max(10, box_width - 6)
+    lines = [Text(header, style="bold"), Text("")]
+    lines.extend(_folder_body(picker, inner, height))
+    panel = Panel(
+        Group(*lines),
+        title=f"[bold cyan]{title}[/bold cyan]",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(1, 2),
+        width=box_width,
+    )
+    return _center_frame(panel, top, panel_h, hint, width, height)
+
+
+def render_lang_picker(state: MenuState, width: int, height: int) -> str:
+    """Render the full-screen language multi-select popup to a string frame."""
+    picker = state.lang_picker
+    top, panel_h, _content = _picker_geometry(picker, height)
+    box_width = min(WIZARD_BOX_WIDTH, max(30, width - 4))
+    lines: list[Text] = []
+    inner = max(10, box_width - 6)
+
+    lines.append(Text("Which languages should the voices use?  (Space toggles)", style="bold"))
+    lines.append(Text(""))
+    start, visible = _picker_window(picker, height)
+    sel = set(_selected_langs(state))
+    for i in range(start, min(start + visible, len(picker.options))):
+        code, label = picker.options[i]
+        selected = code in sel or (code == "" and not sel)
+        is_cursor = i == picker.cursor
+        row = Text("✓ " if selected else "  ", style="bold green" if selected else "dim")
+        row.append("> " if is_cursor else "  ")
+        row.append(
+            _fit_tail(label, inner - 5),
+            style="reverse bold cyan" if is_cursor else ("bold" if selected else ""),
+        )
+        lines.append(row)
+    lines.append(Text(""))
+    lines.append(Text(
+        _fit_tail("  ↑/↓ move · Space toggle · Enter done · type to jump · click to toggle", inner),
+        style="dim",
+    ))
+
+    panel = Panel(
+        Group(*lines),
+        title="[bold cyan]Languages[/bold cyan]",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(1, 2),
+        width=box_width,
+    )
+    return _center_frame(
+        panel, top, panel_h, f"Selection: {_lang_summary(state)}", width, height,
+    )
+
+
+def _toggle_picker_lang(state: MenuState, code: str) -> None:
+    """Toggle one code in/out of the active model's selection ('' = all)."""
+    sel = _selected_langs(state)
+    if code == "":
+        new = []
+    elif code in sel:
+        new = [c for c in sel if c != code]
+    else:
+        new = sel + [code]
+    _set_selected_langs(state, new)
+    _persist_defaults(state)
+
+
+def _handle_picker(state: MenuState, key) -> str:
+    """Handle a key/mouse event while the language popup is open."""
+    picker = state.lang_picker
+    total = len(picker.options)
+
+    if isinstance(key, tuple) and key[0] == "mouse":
+        button, x, y = key[1]
+        if button in (64, 65):
+            delta = -3 if button == 64 else 3
+            picker.cursor = max(0, min(total - 1, picker.cursor + delta))
+            return "continue"
+        if button != 0:
+            return "continue"
+        height = ui.get_terminal_size()[1]
+        start, visible = _picker_window(picker, height)
+        top, _panel_h, _content = _picker_geometry(picker, height)
+        first_row = top + 1 + 1 + 2  # border + padding + title + blank line
+        row = y - first_row
+        if 0 <= row < visible:
+            idx = start + row
+            if 0 <= idx < total:
+                picker.cursor = idx
+                _toggle_picker_lang(state, picker.options[idx][0])
+        return "continue"
+
+    is_char = isinstance(key, tuple)
+    char = key[1] if is_char else None
+
+    if key == "up":
+        picker.cursor = max(0, picker.cursor - 1)
+    elif key == "down":
+        picker.cursor = min(total - 1, picker.cursor + 1)
+    elif key == "page_up":
+        picker.cursor = max(0, picker.cursor - 10)
+    elif key == "page_down":
+        picker.cursor = min(total - 1, picker.cursor + 10)
+    elif key == "home":
+        picker.cursor = 0
+    elif key == "end":
+        picker.cursor = max(0, total - 1)
+    elif char == " ":
+        _toggle_picker_lang(state, picker.options[picker.cursor][0])
+    elif key in ("enter", "esc", "tab"):
+        state.lang_picker = None
+        _persist_defaults(state)
+        return "continue"
+    elif is_char:
+        # Type a letter to jump to the first language starting with it.
+        needle = char.lower()
+        for i, (code, label) in enumerate(picker.options):
+            if label.lower().startswith(needle) or code.lower().startswith(needle):
+                picker.cursor = i
+                break
+    return "continue"
+
+
+# ---------------------------------------------------------------------------
+# First-run setup wizard
+# ---------------------------------------------------------------------------
+
+WIZARD_BOX_WIDTH = 66      # panel width (clamped to the terminal)
+WIZARD_LANG_ROWS = 10      # max language rows shown at once
+
+
+@dataclass
+class WizardState:
+    """State for the two-step first-run setup screen (folder, then language)."""
+
+    start_dir: str                                       # folder the chooser opens on
+    lang_options: list[tuple[str, str]] = field(default_factory=list)
+    step: str = "folder"                                 # "folder" | "lang"
+    folder: FolderPickerState | None = None              # built from start_dir
+    lang_idx: int = 0
+    chosen_dir: str = ""
+    chosen_langs: list[str] = field(default_factory=list)
+
+    def __post_init__(self):
+        if self.folder is None:
+            self.folder = new_folder_picker(self.start_dir)
+
+
+def _order_langs(model: str, codes: list[str]) -> list[str]:
+    """Chinese + English first (they are the defaults), then the rest as given."""
+    pinned = [c for c in PINNED_LANGS.get(model, []) if c in codes]
+    return pinned + [c for c in codes if c not in pinned]
+
+
+def _default_langs(model: str, available: list[str]) -> list[str]:
+    """The out-of-the-box language selection for a model."""
+    return [c for c in PINNED_LANGS.get(model, []) if c in available]
+
+
+def _wizard_lang_options(state: MenuState) -> list[tuple[str, str]]:
+    """Language choices (code, label) for the active model; empty when N/A."""
+    model = state.models[state.model_idx] if state.models else "none"
+    if model == "edge":
+        options = [("", "All languages")]
+        for code in _order_langs("edge", state.edge_langs):
+            count = sum(
+                1 for v in state.edge_voices
+                if (v.get("Locale", "") or "").split("-")[0].lower() == code
+            )
+            name = LANG_NAMES.get(code, code)
+            options.append((code, f"{name} ({code}) - {count} voices"))
+        return options
+    if model == "kokoro":
+        return [(code, f"{KOKORO_LANG_CODES[code]} ({code})")
+                for code in _order_langs("kokoro", list(KOKORO_LANG_CODES))]
+    return []
+
+
+def _apply_wizard_choices(state: MenuState, wiz: WizardState) -> None:
+    """Copy the wizard's answers onto the menu state and persist them."""
+    model = state.models[state.model_idx] if state.models else "none"
+    if wiz.chosen_dir:
+        state.default_dir = wiz.chosen_dir
+        cd(state, wiz.chosen_dir)
+    if model == "edge":
+        state.edge_sel = [c for c in wiz.chosen_langs if c in state.edge_langs]
+    elif model == "kokoro":
+        state.kokoro_sel = [c for c in wiz.chosen_langs if c in KOKORO_LANG_CODES]
+    state.voice_filter = ""
+    _set_voice_index(state, 0)
+    _seed_default_voice(state)
+    _persist_defaults(state)
+
+
+def _wizard_lang_window(wiz: WizardState, height: int) -> tuple[int, int]:
+    """Return (first visible option index, visible row count) for the lang list."""
+    total = len(wiz.lang_options)
+    visible = max(3, min(WIZARD_LANG_ROWS, total, height - 12))
+    start = max(0, wiz.lang_idx - visible + 1) if wiz.lang_idx >= visible else 0
+    start = min(start, max(0, total - visible))
+    return start, visible
+
+
+def _wizard_geometry(wiz: WizardState, height: int) -> tuple[int, int, int]:
+    """Return (panel top row, panel height, rows of content) for the current step.
+
+    Rows are 1-based screen rows so mouse coordinates can be mapped directly.
+    """
+    if wiz.step == "folder":
+        return _folder_panel_geometry(wiz.folder, height)
+    _start, visible = _wizard_lang_window(wiz, height)
+    content = 3 + visible + 2
+    panel_h = content + 4  # borders (2) + vertical padding (2)
+    panel_h = min(panel_h, max(5, height - 2))
+    top = max(1, (height - panel_h) // 2 + 1)
+    return top, panel_h, content
+
+
+def _fit_tail(text: str, width: int) -> str:
+    """Trim text to width, keeping the end (paths matter most on the right)."""
+    if width <= 1 or len(text) <= width:
+        return text
+    return "…" + text[-(width - 1):]
+
+
+def render_wizard(wiz: WizardState, width: int, height: int) -> str:
+    """Render the full-screen setup wizard to a string frame."""
+    # Every line must fit on one row: a wrapped line would push the panel past
+    # the height reserved for it (and shift the rows the mouse maps).
+    steps = 2 if wiz.lang_options else 1
+    if wiz.step == "folder":
+        return render_folder_panel(
+            wiz.folder, width, height,
+            title=f"Lue setup  (1 of {steps})",
+            header="Where do you keep your books?",
+            hint="Esc = skip setup  ·  Ctrl+C = quit",
+        )
+
+    top, panel_h, _content = _wizard_geometry(wiz, height)
+    box_width = min(WIZARD_BOX_WIDTH, max(30, width - 4))
+    lines: list[Text] = []
+    inner = max(10, box_width - 6)
+
+    lines.append(Text("Which languages should the voices use?  (Space toggles)", style="bold"))
+    lines.append(Text(""))
+    sel = set(wiz.chosen_langs)
+    start, visible = _wizard_lang_window(wiz, height)
+    for i in range(start, min(start + visible, len(wiz.lang_options))):
+        code, label = wiz.lang_options[i]
+        checked = code in sel or (code == "" and not sel)
+        is_cursor = i == wiz.lang_idx
+        row = Text("✓ " if checked else "  ", style="bold green" if checked else "dim")
+        row.append("> " if is_cursor else "  ")
+        row.append(
+            _fit_tail(label, inner - 5),
+            style="reverse bold cyan" if is_cursor else ("bold" if checked else ""),
+        )
+        lines.append(row)
+    lines.append(Text(""))
+    lines.append(Text(
+        _fit_tail("  ↑/↓ move · Space toggle · Enter done · ← back to the folder", inner),
+        style="dim",
+    ))
+
+    panel = Panel(
+        Group(*lines),
+        title=f"[bold cyan]Lue setup  (2 of {steps})[/bold cyan]",
+        border_style="cyan",
+        box=box.ROUNDED,
+        padding=(1, 2),
+        width=box_width,
+    )
+    return _center_frame(
+        panel, top, panel_h, "Esc = skip setup  ·  Ctrl+C = quit", width, height,
+    )
+
+
+def _wizard_commit_folder(wiz: WizardState) -> str:
+    """Take the chooser's folder and advance. Returns 'continue' or 'done'."""
+    target = wiz.folder.cur_dir
+    if not os.path.isdir(target):
+        wiz.folder.error = f"Not a folder: {target}"
+        return "continue"
+    wiz.chosen_dir = os.path.abspath(target)
+    wiz.folder.error = None
+    if not wiz.lang_options:
+        return "done"
+    wiz.step = "lang"
+    return "continue"
+
+
+def _wizard_mouse(wiz: WizardState, button: int, x: int, y: int, height: int) -> str:
+    """Handle a mouse event on the wizard. Returns 'continue' or 'done'."""
+    if wiz.step == "folder":
+        if button in (64, 65):
+            _folder_wheel(wiz.folder, -3 if button == 64 else 3)
+            return "continue"
+        if button != 0:
+            return "continue"
+        top, _panel_h, _content = _wizard_geometry(wiz, height)
+        # panel top border + padding + header + blank line
+        if _folder_click(wiz.folder, y, top + 4, height) == "choose":
+            outcome = _wizard_commit_folder(wiz)
+            return "done" if outcome == "done" else "continue"
+        return "continue"
+    start, visible = _wizard_lang_window(wiz, height)
+    if button in (64, 65):
+        delta = -3 if button == 64 else 3
+        wiz.lang_idx = max(0, min(len(wiz.lang_options) - 1, wiz.lang_idx + delta))
+        return "continue"
+    if button != 0:
+        return "continue"
+    top, _panel_h, _content = _wizard_geometry(wiz, height)
+    # panel top border + padding + header + blank line
+    first_row = top + 1 + 1 + 2
+    row = y - first_row
+    if 0 <= row < visible:
+        idx = start + row
+        if 0 <= idx < len(wiz.lang_options):
+            wiz.lang_idx = idx
+            code = wiz.lang_options[idx][0]
+            if code == "":
+                wiz.chosen_langs = []
+            elif code in wiz.chosen_langs:
+                wiz.chosen_langs = [c for c in wiz.chosen_langs if c != code]
+            else:
+                wiz.chosen_langs = list(wiz.chosen_langs) + [code]
+    return "continue"
+
+
+def handle_wizard_key(wiz: WizardState, key, height: int) -> str:
+    """Handle one key for the wizard. Returns 'continue', 'done', 'skip' or 'quit'."""
+    if key == "ctrl_c":
+        return "quit"
+    if isinstance(key, tuple) and key[0] == "mouse":
+        return _wizard_mouse(wiz, key[1][0], key[1][1], key[1][2], height)
+
+    if wiz.step == "folder":
+        # The chooser owns every key here: letters filter, Esc backs out of a
+        # filter or the path field before it means "skip setup".
+        outcome = _handle_folder_key(wiz.folder, key, height)
+        if outcome == "choose":
+            return _wizard_commit_folder(wiz)
+        if outcome == "cancel":
+            return "skip"
+        return "continue"
+
+    is_char = isinstance(key, tuple)
+    char = key[1] if is_char else None
+
+    if key == "esc":
+        return "skip"
+
+    # ---- language step ----
+    total = len(wiz.lang_options)
+    _start, visible = _wizard_lang_window(wiz, height)
+    if key == "up":
+        wiz.lang_idx = max(0, wiz.lang_idx - 1)
+    elif key == "down":
+        wiz.lang_idx = min(total - 1, wiz.lang_idx + 1)
+    elif key == "page_up":
+        wiz.lang_idx = max(0, wiz.lang_idx - visible)
+    elif key == "page_down":
+        wiz.lang_idx = min(total - 1, wiz.lang_idx + visible)
+    elif key == "home":
+        wiz.lang_idx = 0
+    elif key == "end":
+        wiz.lang_idx = max(0, total - 1)
+    elif key in ("left", "backspace"):
+        # Step back to the folder chooser — the folder is never a one-shot answer.
+        wiz.step = "folder"
+    elif key == "enter":
+        # Confirm the whole selection (Space-built) as-is.
+        return "done"
+    elif char == " ":
+        code = wiz.lang_options[wiz.lang_idx][0] if total else ""
+        if code == "":
+            wiz.chosen_langs = []
+        elif code in wiz.chosen_langs:
+            wiz.chosen_langs = [c for c in wiz.chosen_langs if c != code]
+        else:
+            wiz.chosen_langs = list(wiz.chosen_langs) + [code]
+    elif key == "tab":
+        return "done"
+    elif is_char:
+        # Type a letter to jump to the first language starting with it.
+        needle = char.lower()
+        for i, (code, label) in enumerate(wiz.lang_options):
+            if label.lower().startswith(needle) or code.lower().startswith(needle):
+                wiz.lang_idx = i
+                break
+    return "continue"
+
+
+def _wizard_initial_lang_idx(state: MenuState, options: list[tuple[str, str]]) -> int:
+    """Place the cursor on the first already-selected language."""
+    sel = set(_selected_langs(state))
+    for i, (code, _label) in enumerate(options):
+        if code and code in sel:
+            return i
+    return 0
+
+
+async def run_setup_wizard(state: MenuState) -> str:
+    """Run the first-run setup screen. Returns 'done', 'skip' or 'quit'."""
+    options = _wizard_lang_options(state)
+    wiz = WizardState(
+        start_dir=state.current_dir,
+        lang_options=options,
+        lang_idx=_wizard_initial_lang_idx(state, options),
+        chosen_langs=_selected_langs(state),
+    )
+    def _handle(key, height):
+        outcome = handle_wizard_key(wiz, key, height)
+        if wiz.chosen_dir and wiz.chosen_dir != state.default_dir:
+            # Persist the folder as soon as step 1 is answered, so it survives
+            # even if the language step is abandoned.
+            state.default_dir = wiz.chosen_dir
+            _persist_defaults(state)
+        return outcome
+
+    outcome = await _run_input_loop(lambda w, h: render_wizard(wiz, w, h), _handle)
+    if outcome == "quit":
+        return "quit"
+    # Keep whatever was answered before a skip (e.g. the folder from step 1),
+    # and fall back to the browsed folder so the wizard does not nag again.
+    _apply_wizard_choices(state, wiz)
+    if not state.default_dir:
+        state.default_dir = state.current_dir
+    if outcome == "done":
+        state.status_msg = f"Default folder set: {state.default_dir}"
+    else:
+        state.status_msg = (
+            f"Setup skipped - using {state.default_dir} "
+            "(change it any time on the Folder field, or press 's' here)"
+        )
+    _persist_defaults(state)
+    return outcome
+
+
+# ---------------------------------------------------------------------------
 # Key loop and entry point
 # ---------------------------------------------------------------------------
 
-async def run_key_loop(state: MenuState) -> MenuResult | None:
-    """Render + read keys until the user launches or quits."""
+async def _run_input_loop(render, handle) -> str:
+    """Render frames and dispatch keys until handle() returns a non-'continue'.
+
+    render(width, height) -> frame string; handle(key, height) -> outcome.
+    Shared by the setup wizard and the main menu so both get the same key
+    parsing, resize handling and split-escape-sequence tolerance.
+    """
     fd = sys.stdin.fileno()
     key_event = asyncio.Event()
     buffer = bytearray()
@@ -1045,11 +1966,12 @@ async def run_key_loop(state: MenuState) -> MenuResult | None:
         pass
 
     esc_deferred = False
+    height = ui.get_terminal_size()[1]
     try:
         while True:
             try:
                 width, height = ui.get_terminal_size()
-                sys.stdout.write(render_menu(state, width, height))
+                sys.stdout.write(render(width, height))
                 sys.stdout.flush()
             except Exception:
                 pass
@@ -1075,19 +1997,26 @@ async def run_key_loop(state: MenuState) -> MenuResult | None:
             while keys:
                 key = keys.popleft()
                 try:
-                    outcome = handle_key(state, key)
+                    outcome = handle(key, height)
                 except Exception:
                     outcome = "continue"
-                if outcome == "launch":
-                    return _make_result(state)
-                if outcome == "quit":
-                    return None
+                if outcome != "continue":
+                    return outcome
     finally:
         loop.remove_reader(fd)
         try:
             loop.remove_signal_handler(signal.SIGWINCH)
         except (ValueError, NotImplementedError):
             pass
+
+
+async def run_key_loop(state: MenuState) -> MenuResult | None:
+    """Render + read keys until the user launches or quits."""
+    outcome = await _run_input_loop(
+        lambda w, h: render_menu(state, w, h),
+        lambda key, _h: handle_key(state, key),
+    )
+    return _make_result(state) if outcome == "launch" else None
 
 
 async def run_start_menu(
@@ -1105,7 +2034,7 @@ async def run_start_menu(
     """Run the interactive start menu, returning MenuResult or None if cancelled.
 
     With guided=True (the `lue ui` shortcut), a first run with no saved default
-    folder opens on the Folder field to invite folder + language setup.
+    folder shows the two-step setup wizard (folder, then language) first.
     """
     if not sys.stdin.isatty():
         console.print("[red]The interactive start menu requires a terminal.[/red]")
@@ -1132,10 +2061,14 @@ async def run_start_menu(
             edge_voices = _edge_fallback_dicts()
             console.print("[yellow]Could not fetch the Edge voice list; showing common voices.[/yellow]")
 
-    # Load persisted user settings (default folder + language).
+    # Load persisted user settings (default folder + language selection).
     prefs = settings.load_settings()
     saved_dir = prefs.get("default_start_dir", "")
-    saved_lang = prefs.get("default_language", "")
+    saved_langs = _parse_lang_value(prefs.get("default_language", ""))
+    # An empty saved list means the user chose "All languages"; the untouched
+    # default is settings.DEFAULTS' "" (a string), which falls back to the
+    # built-in Chinese + English selection.
+    has_saved_langs = isinstance(prefs.get("default_language"), list)
 
     # Available edge language codes (e.g. "en", "es") from the voice list.
     edge_langs = []
@@ -1173,12 +2106,20 @@ async def run_start_menu(
         state.model_idx = models.index(default_tts)
     if default_speed:
         state.speed = max(0.5, min(2.0, float(default_speed)))
+    # Apply the saved language selection (a list; legacy single strings are
+    # normalised by _parse_lang_value). Each model keeps only its own codes.
     if "kokoro" in models:
-        lang = saved_lang or default_lang or config.TTS_LANGUAGE_CODES.get("kokoro")
-        if lang in KOKORO_LANG_CODES:
-            state.kokoro_lang = lang
-    if "edge" in models and saved_lang in edge_langs:
-        state.edge_lang = saved_lang
+        cli_lang = default_lang if default_lang in KOKORO_LANG_CODES else ""
+        langs = [c for c in (saved_langs + [cli_lang] if cli_lang else saved_langs)
+                 if c in KOKORO_LANG_CODES]
+        if not langs and not has_saved_langs:
+            langs = _default_langs("kokoro", list(KOKORO_LANG_CODES))
+        state.kokoro_sel = _order_langs("kokoro", langs)
+    if "edge" in models:
+        langs = [c for c in saved_langs if c in edge_langs]
+        if not langs and not has_saved_langs:
+            langs = _default_langs("edge", edge_langs)
+        state.edge_sel = _order_langs("edge", langs)
     _seed_default_voice(state)
     if default_voice:
         _seed_voice_by_name(state, default_voice)
@@ -1187,12 +2128,10 @@ async def run_start_menu(
         state.selected_file = os.path.abspath(preselect_file)
         state.pane_focus = "settings"
         state.field_cursor = _launch_field_idx(state) or 0
-    elif guided and not state.default_dir:
-        # First run of `lue ui` with no saved folder: invite the user to set
-        # one (then a language). They can Tab to the browser at any time.
-        state.guided = True
-        state.pane_focus = "settings"
-        state.field_cursor = _folder_field_idx(state) or 0
+
+    # First run of `lue ui` with no saved folder: ask for the folder and the
+    # language up front, on their own screen, before showing the menu.
+    show_wizard = guided and not state.default_dir and not preselect_file
 
     build_file_rows(state)
 
@@ -1203,6 +2142,8 @@ async def run_start_menu(
         # Hide cursor, enable mouse click tracking (SGR), enter alternate screen.
         sys.stdout.write("\033[?25l\033[?1000h\033[?1006h\033[?1049h")
         sys.stdout.flush()
+        if show_wizard and await run_setup_wizard(state) == "quit":
+            return None
         return await run_key_loop(state)
     finally:
         sys.stdout.write("\033[?1049l\033[?1000l\033[?1006l\033[?25h")

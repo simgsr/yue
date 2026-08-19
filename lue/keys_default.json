@@ -29,6 +29,7 @@
   "application": {
     "quit": "q",
     "toggle_recent_menu": "r",
+    "open_start_menu": "o",
     "select_menu_item": "\n"
   }
 }
