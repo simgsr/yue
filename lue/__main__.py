@@ -19,6 +19,7 @@ from rich.console import Console
 from .reader import Lue
 from . import config, progress_manager, input_handler
 from .tts_manager import TTSManager, get_default_tts_model_name
+from .start_menu import run_start_menu
 
 def get_keyboard_shortcuts_file(keys_arg):
     """Resolve the keyboard shortcuts file path from the command line argument."""
@@ -156,7 +157,7 @@ async def main():
         help='Open the keyboard shortcuts navigation guide'
     )
     
-    parser.add_argument("file_path", nargs='?', help="Path to the eBook file (.epub, .pdf, .txt, etc.). If not provided, opens the last book you were reading.")
+    parser.add_argument("file_path", nargs='?', help="Path to the eBook file (.epub, .pdf, .txt, etc.). If not provided, shows the interactive start menu.")
     parser.add_argument(
         "-f",
         "--filter",
@@ -181,7 +182,13 @@ async def main():
         choices=[0, 1, 2, 3],
         help="Visual layout mode: 0=minimal, 1=medium, 2=full, 3=speed reading",
     )
-    
+
+    parser.add_argument(
+        "-i", "--menu",
+        action="store_true",
+        help="Show the interactive start menu to pick a book and TTS settings",
+    )
+
     if available_tts:
         # Add "none" option to available TTS choices
         tts_choices = ["none"] + available_tts
@@ -211,6 +218,15 @@ async def main():
         )
     args = parser.parse_args(preprocessed_args)
 
+    # `lue ui` is a shortcut for the interactive start menu (unless a file
+    # literally named "ui" exists in the current directory). Only this
+    # invocation gets the first-run guided folder prompt.
+    via_ui_shortcut = False
+    if args.file_path == "ui" and not os.path.isfile("ui"):
+        args.menu = True
+        args.file_path = None
+        via_ui_shortcut = True
+
     # Initialize console early for printing messages
     console = Console()
 
@@ -223,17 +239,27 @@ async def main():
         else:
             console.print("[red]Guide file not found.[/red]")
             sys.exit(1)
-    # Handle the case when no file is provided - try to open the last book
-    elif not args.file_path:
-        last_book_path = progress_manager.find_most_recent_book()
-        if last_book_path:
-            console.print(f"[green]Opening last book: {os.path.basename(last_book_path)}[/green]")
-            args.file_path = last_book_path
-        else:
-            console.print("[red]No file specified and no previous books found.[/red]")
-            console.print("Please provide a file path as an argument.")
-            parser.print_help()
-            sys.exit(1)
+    # Show the interactive start menu when no file is given or --menu is passed
+    if args.menu or not args.file_path:
+        result = await run_start_menu(
+            console,
+            available_tts,
+            start_dir=os.path.dirname(os.path.abspath(args.file_path)) if args.file_path else None,
+            preselect_file=os.path.abspath(args.file_path) if args.file_path else None,
+            default_tts=getattr(args, "tts", config.DEFAULT_TTS_MODEL),
+            default_voice=getattr(args, "voice", None),
+            default_lang=getattr(args, "lang", None),
+            default_speed=getattr(args, "speed", 1.0),
+            guided=via_ui_shortcut,
+        )
+        if result is None:
+            console.print("[green]Goodbye.[/green]")
+            sys.exit(0)
+        args.file_path = result.file_path
+        args.tts = result.tts_name
+        args.voice = result.voice
+        args.lang = result.lang
+        args.speed = result.speed
     else:
         # Convert relative path to absolute path for consistency
         args.file_path = os.path.abspath(args.file_path)
