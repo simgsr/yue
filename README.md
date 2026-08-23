@@ -38,8 +38,10 @@ brew install ffmpeg
 # Ubuntu/Debian  
 sudo apt install ffmpeg
 
-# 2. Install the latest version from PyPI
-pip install yue-reader 
+# 2. Install Yue from source
+git clone https://github.com/simgsr/yue.git
+cd yue
+pip install .
 
 # 3. Practice using Yue with the navigation guide
 yue --guide
@@ -48,7 +50,7 @@ yue --guide
 yue path/to/your/book.epub 
 ```
 
-> **Note:** Quick start uses Edge TTS (requires internet). For offline capabilities, see [full installation](#-installation-macos-linux-and-windows).
+> **Note:** Yue is not on PyPI yet, so install from source for now. Quick start uses Edge TTS (requires internet). For offline capabilities, see [full installation](#-installation-macos-linux-and-windows).
 
 ---
 
@@ -74,15 +76,6 @@ brew install espeak
 sudo apt update && sudo apt install ffmpeg
 # Optional  
 sudo apt install espeak
-```
-
-#### Arch Linux (AUR)
-```bash
-# Using yay
-yay -S yue-reader-git
-
-# Or using paru
-paru -S yue-reader-git
 ```
 
 #### Windows
@@ -272,9 +265,20 @@ Check out the [Developer Guide](DEVELOPER.md) for instructions on adding new TTS
 
 ---
 
+## Credits
+
+Yue is a modified version of [Lue](https://github.com/paulilaaso/lue) by the Lue
+contributors, renamed and developed further in this fork. All credit for the
+original reader belongs to that project.
+
+---
+
 ## License
 
 This project is licensed under the **GPL-3.0-or-later License** - see the [LICENSE](LICENSE) file for details.
+
+As a modified version of Lue, this project is distributed under the same license
+as the original, and these changes are released under GPL-3.0-or-later as well.
 
 ---
 

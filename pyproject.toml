@@ -9,7 +9,8 @@ description = "A terminal-based eBook reader with modular text-to-speech capabil
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    {name = "Yue contributors"}
+    {name = "Yue contributors"},
+    {name = "Lue contributors"},
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -48,6 +49,7 @@ yue = "yue.__main__:cli"
 Homepage = "https://github.com/simgsr/yue"
 Repository = "https://github.com/simgsr/yue"
 Issues = "https://github.com/simgsr/yue/issues"
+"Upstream (Lue)" = "https://github.com/paulilaaso/lue"
 
 [tool.setuptools.packages.find]
 include = ["yue*"]

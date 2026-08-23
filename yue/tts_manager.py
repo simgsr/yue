@@ -33,7 +33,7 @@ class TTSManager:
         for file_path in tts_dir.glob("*_tts.py"):
             module_name = file_path.stem
             try:
-                module = importlib.import_module(f".tts.{module_name}", package="yue")
+                module = importlib.import_module(f".tts.{module_name}", package=__package__)
                 for name, obj in inspect.getmembers(module, inspect.isclass):
                     if (issubclass(obj, TTSBase) and 
                         not inspect.isabstract(obj) and 
