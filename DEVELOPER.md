@@ -1,9 +1,9 @@
-# Lue - Developer Guide: Adding a New TTS Model
+# Yue - Developer Guide: Adding a New TTS Model
 
-Lue is designed to automatically discover and use any TTS model that adheres to a specific "contract." To add a new model, you only need to create one Python file and edit the configuration.
+Yue is designed to automatically discover and use any TTS model that adheres to a specific "contract." To add a new model, you only need to create one Python file and edit the configuration.
 
 The process is:
-1.  Create a new file in `lue/tts/` named `yourtts_tts.py`. The filename has to end with `_tts.py`.
+1.  Create a new file in `yue/tts/` named `yourtts_tts.py`. The filename has to end with `_tts.py`.
 2.  Implement a class inside that file that inherits from `TTSBase`.
 3.  Add the model's dependencies to `requirements.txt`.
 4.  Add a default voice for the model in `config.py`'s `TTS_VOICES` dictionary.
@@ -11,7 +11,7 @@ The process is:
 
 ### The `TTSBase` Contract
 
-Your new class must implement the following properties and methods. The `Lue` application relies on this exact structure to function correctly.
+Your new class must implement the following properties and methods. The `Yue` application relies on this exact structure to function correctly.
 
 -   `__init__(self, console: Console, voice: str = None, lang: str = None):`
     -   **Purpose:** The constructor for your TTS model.
@@ -43,7 +43,7 @@ Your new class must implement the following properties and methods. The `Lue` ap
 
 ### Word-Level Timing (Optional Advanced Feature)
 
-Lue supports word-level highlighting during audio playback, which provides a better reading experience by highlighting each word as it's spoken. The timing logic has been centralized in `lue/timing_calculator.py` to simplify TTS implementations.
+Yue supports word-level highlighting during audio playback, which provides a better reading experience by highlighting each word as it's spoken. The timing logic has been centralized in `yue/timing_calculator.py` to simplify TTS implementations.
 
 To support word-level highlighting, your TTS model should override the `get_raw_timing_data` method from the `TTSBase` class:
 
@@ -94,10 +94,10 @@ async def get_raw_timing_data(self, text: str, output_path: str):
 
 ### Code Template
 
-Use this template for your `lue/tts/yourtts_tts.py` file. It includes the required structure and best practices for handling errors and blocking operations.
+Use this template for your `yue/tts/yourtts_tts.py` file. It includes the required structure and best practices for handling errors and blocking operations.
 
 ```python
-# lue/tts/yourtts_tts.py
+# yue/tts/yourtts_tts.py
 import os
 import asyncio
 import logging

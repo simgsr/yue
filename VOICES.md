@@ -1,12 +1,12 @@
-# Lue - Voices and Languages Guide
+# Yue - Voices and Languages Guide
 
-This document explains the speakers and languages included in the Edge and Kokoro TTS models, which are part of Lue’s default installation.
+This document explains the speakers and languages included in the Edge and Kokoro TTS models, which are part of Yue’s default installation.
 
 ***
 
 ## Configuration
 
-To configure voices and languages, edit the `lue/config.py` file:
+To configure voices and languages, edit the `yue/config.py` file:
 
 ```python
 # Voice settings

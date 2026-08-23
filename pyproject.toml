@@ -3,13 +3,13 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lue-reader"
+name = "yue-reader"
 version = "0.5.0"
 description = "A terminal-based eBook reader with modular text-to-speech capabilities and multi-format support"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    {name = "Lue contributors"}
+    {name = "Yue contributors"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -42,15 +42,15 @@ kokoro = [
 ]
 
 [project.scripts]
-lue = "lue.__main__:cli"
+yue = "yue.__main__:cli"
 
 [project.urls]
-Homepage = "https://github.com/paulilaaso/lue"
-Repository = "https://github.com/paulilaaso/lue"
-Issues = "https://github.com/paulilaaso/lue/issues"
+Homepage = "https://github.com/simgsr/yue"
+Repository = "https://github.com/simgsr/yue"
+Issues = "https://github.com/simgsr/yue/issues"
 
 [tool.setuptools.packages.find]
-include = ["lue*"]
+include = ["yue*"]
 
 [tool.setuptools.package-data]
-lue = ["py.typed", "guide.txt", "*.json"]
+yue = ["py.typed", "guide.txt", "*.json"]

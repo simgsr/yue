@@ -15,7 +15,7 @@ from . import config, content_parser, progress_manager, audio, ui, input_handler
 from .start_menu import run_start_menu
 from .tts.base import TTSBase
 
-class Lue:
+class Yue:
     def __init__(self, file_path, tts_model: TTSBase | None, overlap: float | None = None,
                  tts_manager=None, available_tts=None):
         self.console = Console()
@@ -1251,7 +1251,7 @@ class Lue:
 
         if config.SHOW_ERRORS_ON_EXIT:
             try:
-                log_dir = platformdirs.user_log_dir(appname="lue", appauthor=False)
+                log_dir = platformdirs.user_log_dir(appname="yue", appauthor=False)
                 log_file = os.path.join(log_dir, "error.log")
                 if os.path.exists(log_file):
                     with open(log_file, 'r') as f:

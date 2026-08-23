@@ -33,7 +33,7 @@ def split_into_sentences(paragraph: str) -> list[str]:
     abbrev_pattern = r"\b(" + "|".join(abbreviations) + r")\."
     
     # Use a unique placeholder that is highly unlikely to be in the original text.
-    placeholder = "<LUE_PERIOD>"
+    placeholder = "<YUE_PERIOD>"
     
     # 1. Protect periods in abbreviations by replacing them with the placeholder.
     paragraph = re.sub(abbrev_pattern, r"\1" + placeholder, paragraph, flags=re.IGNORECASE)

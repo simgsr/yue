@@ -3,7 +3,7 @@ include LICENSE
 include requirements.txt
 include DEVELOPER.md
 include VOICES.md
-recursive-include lue *.py
-recursive-include lue *.typed
-recursive-include lue *.txt
-recursive-include lue *.json
+recursive-include yue *.py
+recursive-include yue *.typed
+recursive-include yue *.txt
+recursive-include yue *.json

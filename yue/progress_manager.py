@@ -1,4 +1,4 @@
-"""Reading progress management for the Lue eBook reader."""
+"""Reading progress management for the Yue eBook reader."""
 
 import os
 import json

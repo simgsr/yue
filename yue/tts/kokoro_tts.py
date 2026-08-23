@@ -41,7 +41,7 @@ class KokoroTTS(TTSBase):
     def _patch_hf_downloader(self):
         """Patches hf_hub_download to show download progress messages."""
         try:
-            if hasattr(self.huggingface_hub, "_patched_by_lue"):
+            if hasattr(self.huggingface_hub, "_patched_by_yue"):
                 return
 
             original_hf_hub_download = self.huggingface_hub.hf_hub_download
@@ -59,7 +59,7 @@ class KokoroTTS(TTSBase):
                 return original_hf_hub_download(*args, **kwargs)
 
             self.huggingface_hub.hf_hub_download = tracked_hf_hub_download
-            self.huggingface_hub._patched_by_lue = True
+            self.huggingface_hub._patched_by_yue = True
 
             import kokoro.model as kokoro_model
             import kokoro.pipeline as kokoro_pipeline

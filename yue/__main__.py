@@ -1,4 +1,4 @@
-"""Main entry point for the Lue eBook reader application."""
+"""Main entry point for the Yue eBook reader application."""
 
 import asyncio
 import sys
@@ -16,7 +16,7 @@ except ImportError:
     # Fallback for Python < 3.9
     from importlib_resources import files
 from rich.console import Console
-from .reader import Lue
+from .reader import Yue
 from . import config, progress_manager, input_handler
 from .tts_manager import TTSManager, get_default_tts_model_name
 from .start_menu import run_start_menu
@@ -27,7 +27,7 @@ def get_keyboard_shortcuts_file(keys_arg):
     if os.path.isfile(keys_arg):
         return keys_arg
     
-    # If it's a preset name, look for keys_{name}.json in the lue directory
+    # If it's a preset name, look for keys_{name}.json in the yue directory
     preset_file = os.path.join(os.path.dirname(__file__), f'keys_{keys_arg}.json')
     if os.path.isfile(preset_file):
         return preset_file
@@ -48,12 +48,12 @@ def get_guide_file_path():
     try:
         # Try to get the guide from the package data first (for pip installs)
         try:
-            guide_file = files('lue') / 'guide.txt'
+            guide_file = files('yue') / 'guide.txt'
             guide_content = guide_file.read_text(encoding='utf-8')
             
             # Create a temporary file with a user-friendly name
             temp_dir = tempfile.gettempdir()
-            temp_path = os.path.join(temp_dir, "Lue Navigation Guide.txt")
+            temp_path = os.path.join(temp_dir, "Yue Navigation Guide.txt")
             
             with open(temp_path, 'w', encoding='utf-8') as temp_file:
                 temp_file.write(guide_content)
@@ -73,7 +73,7 @@ def get_guide_file_path():
 
 def setup_logging():
     """Set up file-based logging for the application."""
-    log_dir = platformdirs.user_log_dir(appname="lue", appauthor=False)
+    log_dir = platformdirs.user_log_dir(appname="yue", appauthor=False)
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "error.log")
     
@@ -218,7 +218,7 @@ async def main():
         )
     args = parser.parse_args(preprocessed_args)
 
-    # `lue ui` is a shortcut for the interactive start menu (unless a file
+    # `yue ui` is a shortcut for the interactive start menu (unless a file
     # literally named "ui" exists in the current directory). Only this
     # invocation gets the first-run guided folder prompt.
     via_ui_shortcut = False
@@ -230,7 +230,7 @@ async def main():
     # Initialize console early for printing messages
     console = Console()
 
-    # Handle guide argument - open guide file in Lue app
+    # Handle guide argument - open guide file in Yue app
     if args.guide:
         guide_path = get_guide_file_path()
         if guide_path:
@@ -333,7 +333,7 @@ async def main():
         lang = args.lang if hasattr(args, 'lang') else None
         tts_instance = tts_manager.create_model(args.tts, console, voice=voice, lang=lang)
 
-    reader = Lue(args.file_path, tts_model=tts_instance, overlap=args.over,
+    reader = Yue(args.file_path, tts_model=tts_instance, overlap=args.over,
                  tts_manager=tts_manager, available_tts=available_tts)
     if hasattr(args, 'speed'):
         reader.playback_speed = args.speed
@@ -347,7 +347,7 @@ async def main():
     temp_guide_file = None
     
     # Check if we're using a temporary guide file
-    if args.guide and args.file_path and "Lue Navigation Guide.txt" in args.file_path:
+    if args.guide and args.file_path and "Yue Navigation Guide.txt" in args.file_path:
         temp_guide_file = args.file_path
     
     try:

@@ -1,12 +1,12 @@
-"""Persistent per-user settings for the Lue start menu.
+"""Persistent per-user settings for the Yue start menu.
 
-Lue otherwise keeps no general settings store (lue/config.py is all constants
+Yue otherwise keeps no general settings store (yue/config.py is all constants
 and progress_manager only persists per-book progress), so this module owns a
 single small settings.json next to the progress files. Only a handful of known
 keys are written; unknown keys in the file are ignored on load so hand-edited
 or older files never crash the reader.
 
-The path can be overridden with the LUE_SETTINGS_FILE environment variable
+The path can be overridden with the YUE_SETTINGS_FILE environment variable
 (used by the pty test harness so it does not touch real user settings).
 """
 
@@ -16,13 +16,13 @@ import os
 from . import config
 
 SETTINGS_FILE = os.environ.get(
-    "LUE_SETTINGS_FILE",
+    "YUE_SETTINGS_FILE",
 ) or os.path.join(config.PROGRESS_FILE_DIR, "settings.json")
 
 # Keys and defaults. New/unknown keys fall back to these so a stale or
 # hand-edited file cannot crash the loader.
 DEFAULTS = {
-    # Folder `lue ui` starts browsing from (empty = current working dir).
+    # Folder `yue ui` starts browsing from (empty = current working dir).
     "default_start_dir": "",
     # Language the voice list is filtered to ("" = all voices).
     "default_language": "",

@@ -1,5 +1,5 @@
 """
-Word-level timing calculation module for the Lue eBook reader.
+Word-level timing calculation module for the Yue eBook reader.
 """
 
 import logging

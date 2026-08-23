@@ -1,4 +1,4 @@
-"""Configuration settings for the Lue eBook reader."""
+"""Configuration settings for the Yue eBook reader."""
 
 import os
 from platformdirs import user_data_dir, user_cache_dir
@@ -23,14 +23,14 @@ TTS_OVERLAP_SECONDS = {
 }
 
 # Audio processing settings
-AUDIO_DATA_DIR = user_cache_dir("lue")
+AUDIO_DATA_DIR = user_cache_dir("yue")
 os.makedirs(AUDIO_DATA_DIR, exist_ok=True)
 AUDIO_BUFFERS = [os.path.join(AUDIO_DATA_DIR, f"buffer_{i}") for i in range(6)]
 MAX_QUEUE_SIZE = 4
 OVERLAP_SECONDS = 0.5 # Seconds of overlap between sentences
 
 # Progress tracking settings
-PROGRESS_FILE_DIR = user_data_dir("lue")
+PROGRESS_FILE_DIR = user_data_dir("yue")
 os.makedirs(PROGRESS_FILE_DIR, exist_ok=True)
 
 # General settings

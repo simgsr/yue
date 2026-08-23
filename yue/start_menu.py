@@ -1,4 +1,4 @@
-"""Interactive in-terminal start menu for the Lue eBook reader.
+"""Interactive in-terminal start menu for the Yue eBook reader.
 
 Lets the user pick a book file (browsing the filesystem, recent books first)
 and configure TTS (model, voice, language, speed) before reading starts.
@@ -1723,7 +1723,7 @@ def render_wizard(wiz: WizardState, width: int, height: int) -> str:
     if wiz.step == "folder":
         return render_folder_panel(
             wiz.folder, width, height,
-            title=f"Lue setup  (1 of {steps})",
+            title=f"Yue setup  (1 of {steps})",
             header="Where do you keep your books?",
             hint="Esc = skip setup  ·  Ctrl+C = quit",
         )
@@ -1756,7 +1756,7 @@ def render_wizard(wiz: WizardState, width: int, height: int) -> str:
 
     panel = Panel(
         Group(*lines),
-        title=f"[bold cyan]Lue setup  (2 of {steps})[/bold cyan]",
+        title=f"[bold cyan]Yue setup  (2 of {steps})[/bold cyan]",
         border_style="cyan",
         box=box.ROUNDED,
         padding=(1, 2),
@@ -2033,7 +2033,7 @@ async def run_start_menu(
 ) -> MenuResult | None:
     """Run the interactive start menu, returning MenuResult or None if cancelled.
 
-    With guided=True (the `lue ui` shortcut), a first run with no saved default
+    With guided=True (the `yue ui` shortcut), a first run with no saved default
     folder shows the two-step setup wizard (folder, then language) first.
     """
     if not sys.stdin.isatty():
@@ -2129,7 +2129,7 @@ async def run_start_menu(
         state.pane_focus = "settings"
         state.field_cursor = _launch_field_idx(state) or 0
 
-    # First run of `lue ui` with no saved folder: ask for the folder and the
+    # First run of `yue ui` with no saved folder: ask for the folder and the
     # language up front, on their own screen, before showing the menu.
     show_wizard = guided and not state.default_dir and not preselect_file
 

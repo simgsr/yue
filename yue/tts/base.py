@@ -1,4 +1,4 @@
-"""Abstract base class for TTS models in the Lue eBook reader."""
+"""Abstract base class for TTS models in the Yue eBook reader."""
 
 from abc import ABC, abstractmethod
 from rich.console import Console
@@ -9,7 +9,7 @@ class TTSBase(ABC):
     Abstract base class for all TTS models.
     
     This class defines the interface that all TTS models must implement
-    to be compatible with the Lue eBook reader.
+    to be compatible with the Yue eBook reader.
     """
 
     def __init__(self, console: Console, voice: str = None, lang: str = None):
