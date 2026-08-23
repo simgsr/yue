@@ -24,6 +24,7 @@ Yue is a versatile terminal eBook and document reader that is designed to seamle
 | **Smart Persistence**                | Automatic progress saving, state restoration, and cross-session continuity for seamless reading|
 | **Fast Navigation**                  | Intuitive shortcuts, mouse support, smooth scrolling and chapters list for fast navigation.     |
 | **Extensive Customization**          | Fully customizable keyboard layouts (including Vim-style bindings), adjustable UI elements, colors, and display modes|
+| **Interactive Start Menu**           | Launch with no arguments to browse recent books and your filesystem, and set the TTS model, voice, language and speed before reading |
 
 ---
 
@@ -142,8 +143,12 @@ pip install .
 # Start with default TTS
 yue path/to/your/book.epub
 
-# Launch without arguments to open the last book you were reading
+# Launch without arguments to open the interactive start menu
 yue
+
+# Open the start menu explicitly (same as `yue ui`)
+yue --menu
+yue -i
 
 # Practice Yue default keys with the navigation guide
 yue --guide
@@ -205,6 +210,7 @@ yue -m 3 path/to/your/book.epub
 | `,` / `.`                               | Decrease or increase text-to-speech playback speed (1x to 3x)                                  |
 | `s` / `w`                               | Toggle sentence highlighting or word highlighting on/off                                       |
 | `v`                                     | Cycle through UI complexity modes (Minimal, Medium, Full)                                      |
+| `o`                                     | Re-open the start menu to change book or TTS settings without quitting                         |
 
 </div>
 
@@ -215,6 +221,22 @@ yue -m 3 path/to/your/book.epub
 - **Progress bar click** - Jump to position
 
 ## Customize
+
+### Start Menu
+
+Running `yue` with no file argument opens an interactive start menu (`yue --menu`,
+`yue -i` and `yue ui` do the same). From there you can:
+
+- Pick a book from your recent books, or browse the filesystem to find one
+- Choose the TTS model, voice, language and playback speed before reading starts
+- Set a default folder to start browsing from, and a default language to filter
+  the voice list — both are remembered between runs
+
+The first `yue ui` run is guided: it asks for your books folder, then your
+language. Press `o` while reading to re-open the menu without quitting.
+
+Menu preferences are stored in `settings.json` alongside your reading progress
+(see [Data Storage](#data-storage)).
 
 ### UI Modes
 
