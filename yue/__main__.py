@@ -51,13 +51,19 @@ def get_guide_file_path():
             guide_file = files('yue') / 'guide.txt'
             guide_content = guide_file.read_text(encoding='utf-8')
             
-            # Create a temporary file with a user-friendly name
-            temp_dir = tempfile.gettempdir()
+            # Give the guide a user-friendly name (the reader shows the file
+            # name as the book title) inside a private directory of our own.
+            # A fixed name directly in the shared temp dir is predictable, so
+            # on systems where that dir is world-writable another local user
+            # could pre-create it as a symlink and the write below would follow
+            # it and truncate whatever it points at. mkdtemp() is created 0700
+            # with a random name, so the path cannot be guessed or pre-empted.
+            temp_dir = tempfile.mkdtemp(prefix="yue-guide-")
             temp_path = os.path.join(temp_dir, "Yue Navigation Guide.txt")
-            
+
             with open(temp_path, 'w', encoding='utf-8') as temp_file:
                 temp_file.write(guide_content)
-            
+
             return temp_path
             
         except (FileNotFoundError, ModuleNotFoundError):
@@ -370,12 +376,20 @@ async def main():
         if fd is not None and old_settings is not None:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         
-        # Clean up temporary guide file if it was created
+        # Clean up the temporary guide file if it was created. It lives in a
+        # private directory of its own, so remove that too rather than leaking
+        # one empty directory per `--guide` run.
         if temp_guide_file:
             try:
                 os.unlink(temp_guide_file)
             except (OSError, FileNotFoundError):
                 pass
+            temp_guide_dir = os.path.dirname(temp_guide_file)
+            if os.path.basename(temp_guide_dir).startswith("yue-guide-"):
+                try:
+                    os.rmdir(temp_guide_dir)
+                except OSError:
+                    pass
 
 def cli():
     """Synchronous entry point for the command-line interface."""
