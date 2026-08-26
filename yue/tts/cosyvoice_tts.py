@@ -139,6 +139,10 @@ class CosyVoiceTTS(TTSBase):
     async def generate_audio(self, text: str, output_path: str):
         if not self.initialized or self._proc is None:
             raise RuntimeError("CosyVoice has not been initialized.")
+        from .text_normalize import normalize_tts_text
+        # CosyVoice2's English number/date/abbreviation normalization is weak;
+        # spell English digits out so they read correctly. Chinese passes through.
+        text = normalize_tts_text(text, getattr(self, "lang", ""))
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._blocking_generate, text, output_path)
 
