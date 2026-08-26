@@ -183,6 +183,7 @@ class Yue:
         self.chapter_idx = self.ui_chapter_idx = chapter_idx
         self.paragraph_idx = self.ui_paragraph_idx = para_idx
         self.sentence_idx = self.ui_sentence_idx = 0
+        self._reset_highlight_state()
         self.first_sentence_jump = False
         self._scroll_to_position_immediate(chapter_idx, para_idx, 0)
         self._save_extended_progress(sync_audio_position=True)
@@ -905,6 +906,23 @@ class Yue:
             new_offset = min(max(0, target_line - available_height // 2), max(0, len(self.document_lines) - available_height))
             self.scroll_offset = self.target_scroll_offset = new_offset
 
+    def _reset_highlight_state(self):
+        """Drop word-level highlight state when the reading sentence moves to a
+        new sentence/paragraph/chapter. Previously the word index was only reset
+        when the audio emitted `_new_sentence_started`, which is asynchronous —
+        so after a chapter/paragraph jump the previous sentence's word index and
+        timing kept drawing on the new text until the new audio began, making the
+        highlight jump around. Resetting here keeps the highlight locked to the
+        new sentence immediately.
+        """
+        self.ui_word_idx = 0
+        # Invalidate the previous sentence's word-timing state so
+        # _word_update_loop stops advancing a stale word index mid-jump.
+        self.current_sentence_words = []
+        self.current_word_timings = None
+        self.current_word_mapping = None
+        self.current_sentence_duration = 0
+
     def _handle_scroll_up_immediate(self):
         self.auto_scroll_enabled = False
         self.scroll_offset = self.target_scroll_offset = max(0, self.scroll_offset - 1)
@@ -951,6 +969,7 @@ class Yue:
             self.first_sentence_jump = False
             self.chapter_idx, self.paragraph_idx, self.sentence_idx = new_pos
             self.ui_chapter_idx, self.ui_paragraph_idx, self.ui_sentence_idx = new_pos
+            self._reset_highlight_state()
             self._scroll_to_position_immediate(*new_pos)
             self._save_extended_progress(sync_audio_position=True)
 
@@ -962,6 +981,7 @@ class Yue:
             self.first_sentence_jump = False
             self.chapter_idx, self.paragraph_idx, self.sentence_idx = new_pos
             self.ui_chapter_idx, self.ui_paragraph_idx, self.ui_sentence_idx = new_pos
+            self._reset_highlight_state()
             # Use smooth scrolling for navigation
             if new_pos in self.position_to_line:
                 target_line = self.position_to_line[new_pos]
@@ -1022,6 +1042,7 @@ class Yue:
         if topmost_sentence:
             self.chapter_idx, self.paragraph_idx, self.sentence_idx = topmost_sentence
             self.ui_chapter_idx, self.ui_paragraph_idx, self.ui_sentence_idx = topmost_sentence
+            self._reset_highlight_state()
             self.first_sentence_jump = True
         self.auto_scroll_enabled = True
         if self.smooth_scroll_task and not self.smooth_scroll_task.done(): self.smooth_scroll_task.cancel()
@@ -1036,6 +1057,7 @@ class Yue:
         if topmost_sentence:
             self.chapter_idx, self.paragraph_idx, self.sentence_idx = topmost_sentence
             self.ui_chapter_idx, self.ui_paragraph_idx, self.ui_sentence_idx = topmost_sentence
+            self._reset_highlight_state()
             self.first_sentence_jump = True
         self.auto_scroll_enabled = True
         if config.SMOOTH_SCROLLING_ENABLED and topmost_sentence and topmost_sentence in self.position_to_line:
@@ -1139,6 +1161,9 @@ class Yue:
                         if self.first_sentence_jump and last_sentence_pos is not None and target_pos != last_sentence_pos:
                             self.first_sentence_jump = False
                         self.ui_chapter_idx, self.ui_paragraph_idx, self.ui_sentence_idx = target_pos
+                        # A new sentence starts at word 0; never carry the previous
+                        # sentence's word index into it.
+                        self.ui_word_idx = 0
                         needs_update = True
                         if self.auto_scroll_enabled:
                             self.last_auto_scroll_position = target_pos
@@ -1629,6 +1654,7 @@ class Yue:
                         self.first_sentence_jump = False
                         self.chapter_idx, self.paragraph_idx, self.sentence_idx = clicked_position
                         self.ui_chapter_idx, self.ui_paragraph_idx, self.ui_sentence_idx = clicked_position
+                        self._reset_highlight_state()
                         self.auto_scroll_enabled = False
                         self._save_extended_progress(sync_audio_position=True)
                         self.pending_restart_task = asyncio.create_task(self._restart_audio_after_navigation())
