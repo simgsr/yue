@@ -4,6 +4,7 @@ import os
 import json
 import re
 import glob
+import hashlib
 from . import config
 
 
@@ -18,7 +19,38 @@ def get_progress_file_path(book_title):
         str: Full path to the progress file
     """
     safe_title = re.sub(r'[^A-Za-z0-9]+', '', book_title)
+    if not safe_title:
+        # All non-ASCII titles (e.g. Chinese) sanitize to nothing, which would
+        # produce a hidden ".progress.json" that the recent-books glob misses
+        # and that collides across every such book. Fall back to a short hash
+        # of the title so the file is non-empty, unique, and visible.
+        safe_title = hashlib.md5(book_title.encode('utf-8')).hexdigest()[:12]
     return os.path.join(config.PROGRESS_FILE_DIR, f"{safe_title}.progress.json")
+
+def migrate_legacy_progress():
+    """Rename the legacy hidden '.progress.json' to its proper per-book file.
+
+    Before the hash-based naming, every all-non-ASCII (e.g. Chinese) title
+    sanitized to an empty string, so all such books shared a single hidden
+    '.progress.json' that the recent-books glob never matched. If that file
+    still exists, move it to the correct name for the book it records so the
+    progress is kept and the book shows up in the recent list.
+    """
+    legacy = os.path.join(config.PROGRESS_FILE_DIR, ".progress.json")
+    if not os.path.exists(legacy):
+        return
+    try:
+        with open(legacy, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        original_path = data.get("original_file_path")
+        if not original_path:
+            return
+        title = os.path.splitext(os.path.basename(original_path))[0]
+        new_path = get_progress_file_path(title)
+        if new_path != legacy and not os.path.exists(new_path):
+            os.rename(legacy, new_path)
+    except (json.JSONDecodeError, IOError, OSError):
+        pass
 
 def remove_progress_for_path(file_path):
     """Delete any progress file whose original_file_path matches `file_path`.
@@ -166,6 +198,7 @@ def get_recent_books(limit=5):
     Returns:
         list: List of dicts containing title, path, and percentage
     """
+    migrate_legacy_progress()
     progress_files = glob.glob(os.path.join(config.PROGRESS_FILE_DIR, "*.progress.json"))
     
     # Sort by modification time (newest first)
@@ -234,6 +267,7 @@ def find_most_recent_book():
     Returns:
         str or None: Path to the most recently read book, or None if no books found
     """
+    migrate_legacy_progress()
     progress_files = glob.glob(os.path.join(config.PROGRESS_FILE_DIR, "*.progress.json"))
     
     if not progress_files:

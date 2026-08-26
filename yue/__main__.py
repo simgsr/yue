@@ -281,6 +281,9 @@ async def main():
 
     setup_environment()
     setup_logging()
+    # Migrate any legacy hidden '.progress.json' (all-Chinese titles used to
+    # collide on it) to its proper per-book file before the reader runs.
+    progress_manager.migrate_legacy_progress()
 
 
     for tool in ['ffprobe', 'ffplay', 'ffmpeg']:
