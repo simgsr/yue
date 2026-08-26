@@ -11,17 +11,44 @@ DEFAULT_TTS_MODEL = "edge"
 TTS_VOICES = {
     "edge": "en-US-JennyNeural",
     "kokoro": "af_heart",
+    "cosyvoice": "zh",  # default reference prompt (zh = Chinese female voice)
 }
 
 # Language codes for TTS models that require them
 TTS_LANGUAGE_CODES = {
     "kokoro": "a",  # a=English, e=Spanish, j=Japanese, etc.
+    "cosyvoice": "zh",  # CosyVoice2 auto-detects EN/CN; lang picks the prompt voice
 }
 
 # TTS model-specific seconds of overlap between sentences (overrides default OVERLAP_SECONDS if specified)
 TTS_OVERLAP_SECONDS = {
     "kokoro": 0.6,
+    "cosyvoice": 0.3,
 }
+
+# CosyVoice2 runs as a separate subprocess under its own venv (it pins
+# torch/transformers versions that must not touch the reader's venv). It uses a
+# JSON-lines protocol over stdin/stdout (see cosyvoice_tts_worker.py).
+COSYVOICE_REPO = os.environ.get(
+    "YUE_COSYVOICE_REPO",
+    "/Users/randallsim/Documents/python_project/tts-training/CosyVoice",
+)
+COSYVOICE_MODEL_DIR = os.environ.get(
+    "YUE_COSYVOICE_MODEL_DIR",
+    "/Users/randallsim/Documents/python_project/tts-training/pretrained_models/CosyVoice2-0.5B",
+)
+COSYVOICE_PROMPT_DIR = os.environ.get(
+    "YUE_COSYVOICE_PROMPT_DIR",
+    "/Users/randallsim/Documents/python_project/tts-training/cosyvoice_prompts",
+)
+COSYVOICE_WORKER_PYTHON = os.environ.get(
+    "YUE_COSYVOICE_WORKER_PYTHON",
+    "/Users/randallsim/Documents/python_project/tts-training/.venv-cosyvoice/bin/python",
+)
+COSYVOICE_WORKER_SCRIPT = os.environ.get(
+    "YUE_COSYVOICE_WORKER_SCRIPT",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts", "cosyvoice_tts_worker.py"),
+)
 
 # Audio processing settings
 AUDIO_DATA_DIR = user_cache_dir("yue")
