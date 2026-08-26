@@ -25,6 +25,40 @@ def _rms(x: np.ndarray, sample_rate: int) -> np.ndarray:
     return np.sqrt((x ** 2).mean(axis=1))
 
 
+def measure_segment_speech(
+    audio_path: str,
+    silence_db: float = -35.0,
+) -> tuple[float, float]:
+    """Return (lead_silence_s, speech_duration_s) for one audio file.
+
+    The splitter deliberately keeps the sentence-pause silence in each segment
+    (so the natural pause is preserved for playback), but that padding inflates
+    the file's total duration. The reader highlights words against the actual
+    spoken portion, so this measures where the speech starts and how long it
+    lasts, ignoring the leading/trailing silence.
+    """
+    data, sr = sf.read(audio_path)
+    if data.ndim > 1:
+        data = data.mean(axis=1)
+    data = data.astype(np.float32)
+    threshold = 10 ** (silence_db / 20.0)
+    rms = _rms(data, sr)
+    silent = rms < threshold
+    nonsil = np.nonzero(~silent)[0]
+    total = len(data) / sr
+    if len(nonsil) == 0:
+        return 0.0, 0.0
+    first = nonsil[0] * _FRAME_S
+    last = (nonsil[-1] + 1) * _FRAME_S
+    lead = first
+    speech = last - first
+    if speech < 0:
+        speech = 0.0
+    if speech > total:
+        speech = total
+    return lead, speech
+
+
 def split_audio_by_silence(
     audio_path: str,
     n_segments: int,

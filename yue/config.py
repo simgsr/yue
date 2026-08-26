@@ -67,6 +67,14 @@ COSYVOICE_WORKER_SCRIPT = os.environ.get(
     "YUE_COSYVOICE_WORKER_SCRIPT",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts", "cosyvoice_tts_worker.py"),
 )
+# Upper bound on how long a single synthesis may block waiting for the worker's
+# reply. CosyVoice paragraph synthesis is slow (tens of seconds), but if the
+# worker ever wedges (e.g. an MPS deadlock) the executor thread would otherwise
+# sit in readline() forever and hang the reader on quit. On timeout the worker
+# is killed so the pipeline recovers instead of freezing.
+COSYVOICE_WORKER_TIMEOUT = float(
+    os.environ.get("YUE_COSYVOICE_WORKER_TIMEOUT", "180")
+)
 
 # Audio processing settings
 AUDIO_DATA_DIR = user_cache_dir("yue")

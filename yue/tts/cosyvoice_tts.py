@@ -10,11 +10,15 @@ English/Chinese per sentence and on MPS synthesises faster than realtime.
 """
 
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
+import select
 import shutil
 import subprocess
+import threading
+import time
 
 from .base import TTSBase
 from .. import config
@@ -47,16 +51,40 @@ class CosyVoiceTTS(TTSBase):
             self.lang = "zh"
 
     def _start_stderr_drain(self):
-        """Drain stderr in a thread so the worker never deadlocks on a full pipe."""
-        loop = asyncio.get_running_loop()
-
+        """Drain stderr on a daemon thread so the worker never deadlocks on a
+        full pipe. A daemon thread (not a pool worker) is used so that a blocked
+        readline() here can never pin the interpreter at exit."""
         def _drain():
-            for line in self._proc.stderr:
-                line = line.rstrip("\n")
-                if line:
-                    logging.debug("cosyvoice worker: %s", line)
+            try:
+                for line in self._proc.stderr:
+                    line = line.rstrip("\n")
+                    if line:
+                        logging.debug("cosyvoice worker: %s", line)
+            except Exception:  # noqa: BLE001
+                pass
 
-        loop.run_in_executor(None, _drain)
+        t = threading.Thread(target=_drain, name="cosyvoice-stderr", daemon=True)
+        t.start()
+
+    def _run_blocking_in_daemon(self, fn, *args):
+        """Run ``fn`` on a daemon thread, returning a Future for its result.
+
+        The blocking synthesis read must not run on the default executor: its
+        threads are non-daemon and ``concurrent.futures._python_exit`` joins
+        them at interpreter exit, so a worker that wedges (and keeps a pipe open
+        via a grandchild) would hang the reader on quit. A daemon thread never
+        blocks interpreter exit.
+        """
+        fut = concurrent.futures.Future()
+
+        def _run():
+            try:
+                fut.set_result(fn(*args))
+            except BaseException as exc:  # noqa: BLE001
+                fut.set_exception(exc)
+
+        threading.Thread(target=_run, name="cosyvoice-synth", daemon=True).start()
+        return fut
 
     async def initialize(self) -> bool:
         if self._proc is not None:
@@ -127,11 +155,48 @@ class CosyVoiceTTS(TTSBase):
         self.initialized = True
         return True
 
+    def _readline_with_timeout(self, timeout: float):
+        """Read one JSON line from the worker's stdout, bounded by ``timeout``.
+
+        Returns the decoded line, ``None`` on timeout, or ``""`` on EOF. Reading
+        via ``select`` + ``os.read`` on a non-blocking fd means a wedged worker
+        can never pin this executor thread forever — the caller can time out and
+        recover (e.g. kill the worker) instead of hanging the reader on quit.
+        """
+        fd = self._proc.stdout.fileno()
+        os.set_blocking(fd, False)
+        buf = bytearray()
+        deadline = time.monotonic() + timeout
+        try:
+            while b"\n" not in buf:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                r, _, _ = select.select([fd], [], [], max(0.0, remaining))
+                if not r:
+                    return None
+                try:
+                    chunk = os.read(fd, 65536)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    return ""  # EOF
+                buf.extend(chunk)
+        finally:
+            os.set_blocking(fd, True)
+        return bytes(buf).split(b"\n", 1)[0].decode("utf-8", "replace")
+
     def _blocking_generate(self, text, output_path):
         request = {"text": text, "voice": self.voice, "out": output_path}
         self._proc.stdin.write(json.dumps(request) + "\n")
         self._proc.stdin.flush()
-        line = self._proc.stdout.readline()
+        line = self._readline_with_timeout(config.COSYVOICE_WORKER_TIMEOUT)
+        if line is None:
+            # Worker wedged (e.g. MPS deadlock). Kill it so this thread returns
+            # and the producer can fail the paragraph instead of hanging.
+            logging.error("CosyVoice synthesis timed out; killing worker")
+            self._force_kill()
+            raise RuntimeError("CosyVoice synthesis timed out (worker killed)")
         if not line:
             raise RuntimeError("CosyVoice worker closed unexpectedly")
         data = json.loads(line)
@@ -141,6 +206,24 @@ class CosyVoiceTTS(TTSBase):
         if not os.path.exists(output_path):
             shutil.copy(data["path"], output_path)
 
+    def _force_kill(self):
+        """Best-effort kill of the worker, without awaiting (called on timeout)."""
+        proc = self._proc
+        if proc is None:
+            return
+        try:
+            if proc.stdin:
+                try:
+                    proc.stdin.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+        finally:
+            self.initialized = False
+
     async def generate_audio(self, text: str, output_path: str):
         if not self.initialized or self._proc is None:
             raise RuntimeError("CosyVoice has not been initialized.")
@@ -148,16 +231,23 @@ class CosyVoiceTTS(TTSBase):
         # CosyVoice2's English number/date/abbreviation normalization is weak;
         # spell English digits out so they read correctly. Chinese passes through.
         text = normalize_tts_text(text, getattr(self, "lang", ""))
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._blocking_generate, text, output_path)
+        fut = self._run_blocking_in_daemon(self._blocking_generate, text, output_path)
+        await asyncio.wrap_future(fut)
 
     async def shutdown(self):
         """Terminate the worker subprocess so the reader can exit cleanly.
 
         Closing stdin alone is not enough: if a synthesis is in flight the
         worker is blocked in inference and won't exit, and the reader's
-        executor thread would stay stuck on readline() forever. So we close
-        stdin, give the worker a short grace period, then kill it.
+        synthesis/stderr threads would stay stuck reading the worker's pipes.
+        So we close stdin, give the worker a short grace period, then kill it.
+        The blocking reads run on *daemon* threads (see ``_run_blocking_in_daemon``
+        and ``_start_stderr_drain``), so even if the worker (or a grandchild
+        inheriting its pipes) keeps a write end open and a thread stays blocked
+        in read(), the interpreter is never joined on it at exit — it exits
+        cleanly instead of hanging. We deliberately do NOT close stdout/stderr
+        here: closing a pipe wrapper while another thread is blocked reading it
+        deadlocks on the file lock.
         """
         proc, self._proc = self._proc, None
         if proc is None:

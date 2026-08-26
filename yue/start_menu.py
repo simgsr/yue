@@ -39,9 +39,29 @@ COSYVOICE_LANG_CODES = {
     "en": "English",
 }
 COSYVOICE_VOICES = {
-    "zh": [("zh", "Chinese Female")],
-    "en": [("en", "English Female")],
+    "zh": [("zh_cosy", "Chinese Female")],
+    "en": [("en_cosy", "English Female")],
 }
+
+# The two built-in reference prompts are shown in the menu as en_cosy / zh_cosy
+# (so they read as "the CosyVoice default", distinct from the cloned prompts
+# like en_<name>). They still load the en.wav / zh.wav prompts under the hood,
+# so these map the menu-facing name back to the prompt id the worker expects
+# (identity for any other prompt id).
+_COSYVOICE_PROMPT_FOR_NAME = {"en_cosy": "en", "zh_cosy": "zh"}
+
+
+def _cosyvoice_name_for_prompt(prompt):
+    """Menu-facing voice name for a prompt id (en -> en_cosy, zh -> zh_cosy)."""
+    for name, p in _COSYVOICE_PROMPT_FOR_NAME.items():
+        if p == prompt:
+            return name
+    return prompt
+
+
+def _cosyvoice_prompt_for_name(name):
+    """Prompt id for a menu-facing voice name (en_cosy -> en, identity otherwise)."""
+    return _COSYVOICE_PROMPT_FOR_NAME.get(name, name)
 
 
 def _cosyvoice_voices_by_lang() -> dict[str, list[tuple[str, str]]]:
@@ -65,7 +85,7 @@ def _cosyvoice_voices_by_lang() -> dict[str, list[tuple[str, str]]]:
                 lang = "zh"
             stem = vid.split("_", 1)[1] if "_" in vid else vid
             label = default_labels.get(vid, stem.replace("_", " ").title())
-            result[lang].append((vid, label))
+            result[lang].append((_cosyvoice_name_for_prompt(vid), label))
     for lang in ("zh", "en"):
         if not result[lang]:
             result[lang] = COSYVOICE_VOICES.get(lang, [])
@@ -316,7 +336,7 @@ def _seed_default_voice(state: MenuState) -> None:
     elif model == "kokoro":
         _seed_voice_by_name(state, config.TTS_VOICES.get("kokoro"))
     elif model == "cosyvoice":
-        _seed_voice_by_name(state, config.TTS_VOICES.get("cosyvoice"))
+        _seed_voice_by_name(state, _cosyvoice_name_for_prompt(config.TTS_VOICES.get("cosyvoice")))
 
 
 # ---------------------------------------------------------------------------
@@ -1514,10 +1534,12 @@ def _make_result(state: MenuState) -> MenuResult:
             if not lang and state.kokoro_sel:
                 lang = state.kokoro_sel[0]
         elif model == "cosyvoice":
-            # The chosen reference voice (zh/en) pins the language.
+            # The chosen reference voice (zh/en) pins the language, and the
+            # menu-facing name maps back to the prompt id the worker loads.
             lang = _cosyvoice_code_for_voice(voice) if voice else ""
             if not lang and state.cosyvoice_sel:
                 lang = state.cosyvoice_sel[0]
+            voice = _cosyvoice_prompt_for_name(voice)
     return MenuResult(
         file_path=os.path.abspath(state.selected_file) if state.selected_file else "",
         tts_name=model,

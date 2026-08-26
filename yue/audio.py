@@ -4,7 +4,7 @@ import re
 import subprocess
 import logging
 from . import config, content_parser
-from .tts.paragraph_split import split_audio_by_silence
+from .tts.paragraph_split import split_audio_by_silence, measure_segment_speech
 
 # This pattern is used to both clean text for TTS and detect sentence fragments.
 ABBREVIATION_PATTERN = r'\b(Mr|Mrs|Ms|Dr|Prof|Rev|Hon|Jr|Sr|Cpl|Sgt|Gen|Col|Capt|Lt|Pvt|vs|viz|Co|Inc|Ltd|Corp|St|Ave|Blvd)\.'
@@ -172,8 +172,15 @@ async def _produce_paragraph(reader, producer_pos, buffer_index):
     else:
         from .timing_calculator import process_tts_timing_data
         for i, seg in enumerate(segs):
+            if i >= len(sentences):
+                break
             duration = await get_audio_duration(seg)
-            timing_info = process_tts_timing_data(sentences[i], [], duration)
+            # The segment keeps the sentence-pause silence, so the audio file
+            # is longer than the actual speech. Time the word highlight against
+            # the spoken portion (offset by the leading silence) so it keeps up
+            # with the voice instead of lagging behind on the silence padding.
+            lead, speech = measure_segment_speech(seg)
+            timing_info = _segment_timing_info(sentences[i], speech, lead)
             await asyncio.wait_for(
                 reader.audio_queue.put((seg, c, p, i, duration, timing_info)),
                 timeout=1.0,
@@ -181,6 +188,38 @@ async def _produce_paragraph(reader, producer_pos, buffer_index):
 
     next_pos = reader._advance_position((c, p, len(sentences) - 1), mode='paragraph', wrap=False)
     return (next_pos, buffer_index) if next_pos else None
+
+
+def _segment_timing_info(sentence: str, speech_duration: float, lead: float) -> dict:
+    """Word timings that track the actual spoken audio of a segment.
+
+    The reader highlights a word based on elapsed time since the segment started
+    playing. A segment file begins with ``lead`` seconds of silence, then speaks
+    for ``speech_duration`` seconds. Spacing the words over that spoken region
+    (offset by the leading silence) keeps the highlight with the voice instead of
+    drifting behind on the silence padding. Word selection matches the reader's
+    ``_new_sentence_started`` handler so the indices align.
+    """
+    words = [token for token in sentence.split() if re.search(r'[a-zA-Z0-9]', token)]
+    if not words:
+        return {
+            "word_timings": [],
+            "speech_duration": 0.0,
+            "total_duration": 0.0,
+            "word_mapping": None,
+        }
+    step = speech_duration / len(words) if speech_duration > 0 else 0.1
+    timings = []
+    t = lead
+    for w in words:
+        timings.append((w, t, t + step))
+        t += step
+    return {
+        "word_timings": timings,
+        "speech_duration": speech_duration,
+        "total_duration": speech_duration,
+        "word_mapping": None,
+    }
 
 
 async def _producer_loop(reader):
