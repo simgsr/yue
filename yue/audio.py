@@ -4,6 +4,7 @@ import re
 import subprocess
 import logging
 from . import config, content_parser
+from .tts.paragraph_split import split_audio_by_silence
 
 # This pattern is used to both clean text for TTS and detect sentence fragments.
 ABBREVIATION_PATTERN = r'\b(Mr|Mrs|Ms|Dr|Prof|Rev|Hon|Jr|Sr|Cpl|Sgt|Gen|Col|Capt|Lt|Pvt|vs|viz|Co|Inc|Ltd|Corp|St|Ave|Blvd)\.'
@@ -126,6 +127,62 @@ async def play_from_current_position(reader):
         reader.producer_task = asyncio.create_task(_producer_loop(reader))
         reader.player_task = asyncio.create_task(_player_loop(reader))
 
+async def _produce_paragraph(reader, producer_pos, buffer_index):
+    """Synthesize a whole paragraph as one audio unit and emit per-sentence
+    segments, so CosyVoice2 keeps natural continuous prosody across sentences.
+
+    Returns (next_producer_pos, buffer_index) or None when reading is done.
+    """
+    c, p, s = producer_pos
+    paragraph_text = reader.chapters[c][p]
+    sentences = content_parser.split_into_sentences(paragraph_text)
+    if not sentences:
+        next_pos = reader._advance_position(producer_pos, mode='paragraph', wrap=False)
+        return (next_pos, buffer_index) if next_pos else None
+
+    output_format = reader.tts_model.output_format
+    para_file = f"{config.AUDIO_BUFFERS[buffer_index]}.{output_format}"
+    for attempt in range(3):
+        try:
+            if os.path.exists(para_file):
+                os.remove(para_file)
+            break
+        except OSError:
+            if attempt < 2:
+                await asyncio.sleep(0.05)
+
+    sanitized = content_parser.sanitize_text_for_tts(paragraph_text)
+    await reader.tts_model.generate_audio(sanitized, para_file)
+    if not reader.running:
+        return None
+
+    seg_dir = config.AUDIO_DATA_DIR
+    segs = split_audio_by_silence(
+        para_file, len(sentences), seg_dir, out_prefix=f"para_{c}_{p}"
+    )
+    if not segs:
+        # Fall back to the whole paragraph as a single unit.
+        duration = await get_audio_duration(para_file)
+        from .timing_calculator import process_tts_timing_data
+        timing_info = process_tts_timing_data(paragraph_text, [], duration)
+        await asyncio.wait_for(
+            reader.audio_queue.put((para_file, c, p, 0, duration, timing_info)),
+            timeout=1.0,
+        )
+    else:
+        from .timing_calculator import process_tts_timing_data
+        for i, seg in enumerate(segs):
+            duration = await get_audio_duration(seg)
+            timing_info = process_tts_timing_data(sentences[i], [], duration)
+            await asyncio.wait_for(
+                reader.audio_queue.put((seg, c, p, i, duration, timing_info)),
+                timeout=1.0,
+            )
+
+    next_pos = reader._advance_position((c, p, len(sentences) - 1), mode='paragraph', wrap=False)
+    return (next_pos, buffer_index) if next_pos else None
+
+
 async def _producer_loop(reader):
     """Producer loop to generate audio files."""
     if not reader.tts_model or not reader.tts_model.initialized:
@@ -139,6 +196,14 @@ async def _producer_loop(reader):
         while reader.running:
             if reader.audio_queue.full():
                 await asyncio.sleep(0.1)
+                continue
+            # Paragraph-level synthesis (CosyVoice2): synthesize the whole
+            # paragraph for natural prosody, then emit per-sentence segments.
+            if getattr(reader.tts_model, 'synthesize_paragraph', False):
+                result = await _produce_paragraph(reader, producer_pos, buffer_index)
+                if result is None:
+                    break
+                producer_pos, buffer_index = result
                 continue
             try:
                 c, p, s = producer_pos

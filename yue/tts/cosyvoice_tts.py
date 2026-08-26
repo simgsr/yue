@@ -23,6 +23,11 @@ from .. import config
 class CosyVoiceTTS(TTSBase):
     """TTS implementation for CosyVoice2."""
 
+    # CosyVoice2 produces far more natural prosody when given a whole paragraph
+    # than isolated sentences, so the producer synthesizes paragraph-by-paragraph
+    # and splits the audio into per-sentence segments.
+    synthesize_paragraph = True
+
     @property
     def name(self) -> str:
         return "cosyvoice"
