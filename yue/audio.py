@@ -152,6 +152,11 @@ async def _produce_paragraph(reader, producer_pos, buffer_index):
                 await asyncio.sleep(0.05)
 
     sanitized = content_parser.sanitize_text_for_tts(paragraph_text)
+    if not sanitized or not sanitized.strip():
+        # Nothing speakable in this paragraph (e.g. a formatting/header line);
+        # skip it rather than sending empty text to the worker.
+        next_pos = reader._advance_position(producer_pos, mode='paragraph', wrap=False)
+        return (next_pos, buffer_index) if next_pos else None
     await reader.tts_model.generate_audio(sanitized, para_file)
     if not reader.running:
         return None
@@ -239,7 +244,32 @@ async def _producer_loop(reader):
             # Paragraph-level synthesis (CosyVoice2): synthesize the whole
             # paragraph for natural prosody, then emit per-sentence segments.
             if getattr(reader.tts_model, 'synthesize_paragraph', False):
-                result = await _produce_paragraph(reader, producer_pos, buffer_index)
+                try:
+                    result = await _produce_paragraph(reader, producer_pos, buffer_index)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    # A failed paragraph (empty text, worker timeout, split
+                    # error, ...) must not kill the producer: log it and move on
+                    # to the next paragraph so reading continues.
+                    try:
+                        para_for_log = reader.chapters[producer_pos[0]][producer_pos[1]]
+                        logging.error(
+                            f"Paragraph synthesis failed at {producer_pos}: {e}\n"
+                            f"Paragraph: '{para_for_log[:120]}...'", exc_info=True
+                        )
+                    except Exception:  # noqa: BLE001
+                        logging.error(
+                            f"Paragraph synthesis failed at {producer_pos}: {e}",
+                            exc_info=True,
+                        )
+                    next_pos = reader._advance_position(
+                        producer_pos, mode='paragraph', wrap=False
+                    )
+                    if not next_pos:
+                        break
+                    producer_pos = next_pos
+                    continue
                 if result is None:
                     break
                 producer_pos, buffer_index = result
