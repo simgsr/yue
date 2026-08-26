@@ -102,20 +102,22 @@ KOKORO_VOICES = {
 }
 
 # Fallback Edge voices (name, gender) used when the network fetch fails.
+# Fallback Edge voices used when edge_tts.list_voices() is unreachable (offline).
+# Only the multilingual voices are offered in the menu, so the fallback mirrors
+# that: a single voice that can narrate in many languages.
 EDGE_FALLBACK_VOICES = [
-    ("en-US-JennyNeural", "Female"), ("en-US-AriaNeural", "Female"),
-    ("en-US-AnaNeural", "Female"), ("en-US-MichelleNeural", "Female"),
-    ("en-US-ChristopherNeural", "Male"), ("en-US-GuyNeural", "Male"),
-    ("en-US-EricNeural", "Male"), ("en-US-RogerNeural", "Male"),
-    ("en-US-SteffanNeural", "Male"),
-    ("en-GB-SoniaNeural", "Female"), ("en-GB-RyanNeural", "Male"),
-    ("en-GB-ThomasNeural", "Male"), ("en-GB-MaisieNeural", "Female"),
-    ("en-AU-NatashaNeural", "Female"), ("en-AU-WilliamNeural", "Male"),
-    ("en-IN-NeerjaNeural", "Female"), ("en-CA-ClaraNeural", "Female"),
-    ("fr-FR-DeniseNeural", "Female"), ("fr-FR-HenriNeural", "Male"),
-    ("de-DE-KatjaNeural", "Female"), ("de-DE-ConradNeural", "Male"),
-    ("es-ES-ElviraNeural", "Female"), ("es-MX-DaliaNeural", "Female"),
-    ("ja-JP-NanamiNeural", "Female"), ("zh-CN-XiaoxiaoNeural", "Female"),
+    ("de-DE-FlorianMultilingualNeural", "Male"),
+    ("de-DE-SeraphinaMultilingualNeural", "Female"),
+    ("en-AU-WilliamMultilingualNeural", "Male"),
+    ("en-US-AndrewMultilingualNeural", "Male"),
+    ("en-US-AvaMultilingualNeural", "Female"),
+    ("en-US-BrianMultilingualNeural", "Male"),
+    ("en-US-EmmaMultilingualNeural", "Female"),
+    ("fr-FR-RemyMultilingualNeural", "Male"),
+    ("fr-FR-VivienneMultilingualNeural", "Female"),
+    ("it-IT-GiuseppeMultilingualNeural", "Male"),
+    ("ko-KR-HyunsuMultilingualNeural", "Male"),
+    ("pt-BR-ThalitaMultilingualNeural", "Female"),
 ]
 
 
@@ -233,6 +235,10 @@ def _current_voice_list(state: MenuState):
         if sel:
             voices = [v for v in voices
                       if (v.get("Locale", "") or "").split("-")[0].lower() in sel]
+        # Only the multilingual Edge voices are offered: a single voice that can
+        # narrate in many languages, which is what the list is for. Any other
+        # Edge voice can still be typed in by name.
+        voices = [v for v in voices if "Multilingual" in v.get("ShortName", "")]
         all_v = [(v.get("ShortName", ""), v.get("Gender", "")) for v in voices]
     else:
         return [], 0
@@ -1667,7 +1673,13 @@ def _order_langs(model: str, codes: list[str]) -> list[str]:
 
 
 def _default_langs(model: str, available: list[str]) -> list[str]:
-    """The out-of-the-box language selection for a model."""
+    """The out-of-the-box language selection for a model.
+
+    Edge defaults to every language (empty = all): its voice list is filtered to
+    the multilingual voices anyway, so there is no reason to hide any locale.
+    """
+    if model == "edge":
+        return []
     return [c for c in PINNED_LANGS.get(model, []) if c in available]
 
 
