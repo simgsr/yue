@@ -1272,6 +1272,14 @@ class Yue:
                     pass
         
         await audio.stop_and_clear_audio(self)
+        # Terminate the TTS backend (kills any worker subprocess). This also
+        # unblocks the producer's executor thread if it was mid-synthesis, so
+        # the process can actually exit.
+        if self.tts_model is not None:
+            try:
+                await self.tts_model.shutdown()
+            except Exception:  # noqa: BLE001
+                pass
         self._save_extended_progress()
         logging.info("--- Application Shutting Down ---")
         # Disable mouse reporting and restore terminal (switch back to main buffer)
@@ -1418,6 +1426,13 @@ class Yue:
             )
             if needs_recreate:
                 await audio.stop_and_clear_audio(self)
+                if self.tts_model is not None:
+                    # Terminate the old backend (e.g. its worker subprocess)
+                    # before replacing it, so no worker leaks out.
+                    try:
+                        await self.tts_model.shutdown()
+                    except Exception:  # noqa: BLE001
+                        pass
                 model = self.tts_manager.create_model(
                     result.tts_name, self.console, voice=result.voice, lang=result.lang
                 )

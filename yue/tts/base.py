@@ -158,6 +158,14 @@ class TTSBase(ABC):
         """
         pass
 
+    async def shutdown(self):
+        """
+        Release resources held by this model (e.g. terminate a worker
+        subprocess). Called when the model is replaced or the app exits.
+        The default implementation is a no-op; subprocess backends override it.
+        """
+        pass
+
     def get_overlap_seconds(self) -> float | None:
         """
         Get the TTS-specific overlap seconds for this model.
@@ -167,3 +175,13 @@ class TTSBase(ABC):
         """
         from .. import config
         return config.TTS_OVERLAP_SECONDS.get(self.name)
+
+    def get_paragraph_pause_seconds(self) -> float:
+        """
+        Get the extra pause (seconds) to insert at paragraph boundaries for
+        this model. Falls back to the global PARAGRAPH_PAUSE_SECONDS.
+        """
+        from .. import config
+        return config.TTS_PARAGRAPH_PAUSE_SECONDS.get(
+            self.name, config.PARAGRAPH_PAUSE_SECONDS
+        )

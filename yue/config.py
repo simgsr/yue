@@ -20,11 +20,23 @@ TTS_LANGUAGE_CODES = {
     "cosyvoice": "zh",  # CosyVoice2 auto-detects EN/CN; lang picks the prompt voice
 }
 
-# TTS model-specific seconds of overlap between sentences (overrides default OVERLAP_SECONDS if specified)
+# TTS model-specific seconds of overlap between sentences (overrides default OVERLAP_SECONDS if specified).
+# A NEGATIVE value means a real pause is inserted between sentences instead of
+# overlapping them. CosyVoice2 already adds natural prosodic pauses at punctuation,
+# so overlapping would cut those off; a small negative overlap keeps a natural rhythm.
 TTS_OVERLAP_SECONDS = {
     "kokoro": 0.6,
-    "cosyvoice": 0.3,
+    "cosyvoice": -0.12,
 }
+
+# Extra pause (seconds) inserted at paragraph boundaries, per model.
+TTS_PARAGRAPH_PAUSE_SECONDS = {
+    "edge": 0.4,
+    "kokoro": 0.5,
+    "cosyvoice": 0.55,
+}
+# Fallback used when a model has no specific paragraph pause set.
+PARAGRAPH_PAUSE_SECONDS = 0.5
 
 # CosyVoice2 runs as a separate subprocess under its own venv (it pins
 # torch/transformers versions that must not touch the reader's venv). It uses a

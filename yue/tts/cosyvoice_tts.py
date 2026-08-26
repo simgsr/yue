@@ -99,24 +99,24 @@ class CosyVoiceTTS(TTSBase):
             self.console.print(
                 "[bold red]Timed out waiting for the CosyVoice worker.[/bold red]"
             )
-            self._shutdown()
+            await self.shutdown()
             return False
         if not line:
             self.console.print(
                 "[bold red]CosyVoice worker exited during startup.[/bold red]"
             )
-            self._shutdown()
+            await self.shutdown()
             return False
         try:
             data = json.loads(line)
         except json.JSONDecodeError:
             logging.error("cosyvoice bad ready line: %r", line)
             self.console.print("[bold red]CosyVoice worker sent a bad reply.[/bold red]")
-            self._shutdown()
+            await self.shutdown()
             return False
         if "error" in data:
             self.console.print(f"[bold red]CosyVoice failed to load: {data['error']}[/bold red]")
-            self._shutdown()
+            await self.shutdown()
             return False
         self.console.print("[green]CosyVoice2 ready.[/green]")
         self.initialized = True
@@ -142,17 +142,37 @@ class CosyVoiceTTS(TTSBase):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._blocking_generate, text, output_path)
 
-    def _shutdown(self):
+    async def shutdown(self):
+        """Terminate the worker subprocess so the reader can exit cleanly.
+
+        Closing stdin alone is not enough: if a synthesis is in flight the
+        worker is blocked in inference and won't exit, and the reader's
+        executor thread would stay stuck on readline() forever. So we close
+        stdin, give the worker a short grace period, then kill it.
+        """
         proc, self._proc = self._proc, None
         if proc is None:
             return
         try:
             if proc.stdin:
-                proc.stdin.close()
-            proc.wait(timeout=10)
+                try:
+                    proc.stdin.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            await asyncio.get_running_loop().run_in_executor(
+                None, self._wait_or_kill, proc
+            )
         except Exception:  # noqa: BLE001
             try:
                 proc.kill()
             except Exception:  # noqa: BLE001
                 pass
         self.initialized = False
+
+    @staticmethod
+    def _wait_or_kill(proc):
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()

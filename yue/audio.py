@@ -236,6 +236,7 @@ async def _producer_loop(reader):
 
 async def _player_loop(reader):
     """Player loop to play audio files."""
+    prev_paragraph = None
     try:
         while reader.running:
             try:
@@ -253,6 +254,16 @@ async def _player_loop(reader):
                 else:
                     # Old format, timing_data is word_timings
                     timing_info = {"word_timings": timing_data, "speech_duration": duration, "total_duration": duration}
+
+                # Insert an extra pause when this sentence begins a new paragraph,
+                # so paragraph breaks are audible (not just a sentence pause).
+                if prev_paragraph is not None and p != prev_paragraph:
+                    para_pause = 0.0
+                    if reader.tts_model and hasattr(reader.tts_model, 'get_paragraph_pause_seconds'):
+                        para_pause = reader.tts_model.get_paragraph_pause_seconds()
+                    if para_pause and para_pause > 0:
+                        await asyncio.sleep(para_pause)
+                prev_paragraph = p
 
                 word_timings = timing_info.get("word_timings", [])
                 
