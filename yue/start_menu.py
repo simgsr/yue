@@ -29,7 +29,18 @@ START_MENU_EXTENSIONS = (".epub", ".pdf", ".txt", ".docx", ".html", ".rtf", ".md
 
 # Chinese + English lead every language list and are the out-of-the-box
 # selection (kokoro splits English into American "a" / British "b").
-PINNED_LANGS = {"edge": ["zh", "en"], "kokoro": ["z", "a"], "xtts": ["en", "zh-cn"]}
+PINNED_LANGS = {"edge": ["zh", "en"], "kokoro": ["z", "a"], "xtts": ["en", "zh-cn"], "spark": ["en"]}
+
+# Spark-TTS is bilingual (English + Chinese) and auto-detects the language per
+# sentence, so its only "language" choice is the auto mode.
+SPARK_LANG_CODES = {"en": "English / Chinese (auto)"}
+
+# Spark-TTS virtual speakers (gender control). The model is bilingual either way.
+SPARK_VOICES = [
+    ("female", "Female"),
+    ("male", "Male"),
+]
+
 
 # Kokoro language codes (see VOICES.md and kokoro pipeline LANG_CODES).
 KOKORO_LANG_CODES = {
@@ -196,6 +207,7 @@ class MenuState:
     voice_filter: str = ""
     kokoro_voice_idx: int = 0
     xtts_voice_idx: int = 0
+    spark_voice_idx: int = 0
     speed: float = 1.0
     field_cursor: int = 0
     default_dir: str = ""           # persisted default start folder ("" = unset)
@@ -203,6 +215,7 @@ class MenuState:
     edge_langs: list[str] = field(default_factory=list)  # available edge language codes
     kokoro_sel: list[str] = field(default_factory=list)  # selected kokoro codes ([] = all)
     xtts_sel: list[str] = field(default_factory=list)  # selected xtts codes ([] = all)
+    spark_sel: list[str] = field(default_factory=list)  # selected spark codes ([] = all)
     lang_picker: LangPickerState | None = None  # when set, the popup owns render/keys
     folder_picker: "FolderPickerState | None" = None  # ditto for the folder chooser
     status_msg: str | None = None   # transient feedback line (e.g. "Default folder set")
@@ -231,6 +244,8 @@ def _get_voice_index(state: MenuState) -> int:
         return state.kokoro_voice_idx
     if model == "xtts":
         return state.xtts_voice_idx
+    if model == "spark":
+        return state.spark_voice_idx
     return 0
 
 
@@ -242,6 +257,8 @@ def _set_voice_index(state: MenuState, new_idx: int) -> None:
         state.kokoro_voice_idx = new_idx
     elif model == "xtts":
         state.xtts_voice_idx = new_idx
+    elif model == "spark":
+        state.spark_voice_idx = new_idx
 
 
 def _current_voice_list(state: MenuState):
@@ -261,6 +278,9 @@ def _current_voice_list(state: MenuState):
     elif model == "xtts":
         codes = state.xtts_sel or list(XTTS_LANG_CODES)
         all_v = list(XTTS_VOICES)
+    elif model == "spark":
+        codes = state.spark_sel or list(SPARK_LANG_CODES)
+        all_v = list(SPARK_VOICES)
     elif model == "edge":
         sel = set(state.edge_sel)
         voices = state.edge_voices
@@ -299,6 +319,8 @@ def _seed_default_voice(state: MenuState) -> None:
         _seed_voice_by_name(state, config.TTS_VOICES.get("kokoro"))
     elif model == "xtts":
         _seed_voice_by_name(state, config.TTS_VOICES.get("xtts"))
+    elif model == "spark":
+        _seed_voice_by_name(state, config.TTS_VOICES.get("spark"))
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +329,7 @@ def _seed_default_voice(state: MenuState) -> None:
 
 def _settings_fields(state: MenuState) -> list[str]:
     model = state.models[state.model_idx] if state.models else "none"
-    if model in ("edge", "kokoro", "xtts"):
+    if model in ("edge", "kokoro", "xtts", "spark"):
         return ["folder", "model", "lang", "voice", "speed"]
     return ["folder", "model"]
 
@@ -338,6 +360,8 @@ def _selected_langs(state: MenuState) -> list[str]:
         return list(state.kokoro_sel)
     if model == "xtts":
         return list(state.xtts_sel)
+    if model == "spark":
+        return list(state.spark_sel)
     if model == "edge":
         return list(state.edge_sel)
     return []
@@ -350,6 +374,8 @@ def _set_selected_langs(state: MenuState, codes: list[str]) -> None:
         state.kokoro_sel = [c for c in codes if c in KOKORO_LANG_CODES]
     elif model == "xtts":
         state.xtts_sel = [c for c in codes if c in XTTS_LANG_CODES]
+    elif model == "spark":
+        state.spark_sel = [c for c in codes if c in SPARK_LANG_CODES]
     elif model == "edge":
         state.edge_sel = [c for c in codes if c in state.edge_langs]
     state.voice_filter = ""
@@ -366,6 +392,8 @@ def _lang_summary(state: MenuState) -> str:
         names = [f"{KOKORO_LANG_CODES.get(c, c)} ({c})" for c in codes]
     elif model == "xtts":
         names = [f"{XTTS_LANG_CODES.get(c, c)} ({c})" for c in codes]
+    elif model == "spark":
+        names = [f"{SPARK_LANG_CODES.get(c, c)} ({c})" for c in codes]
     elif model == "edge":
         names = [f"{LANG_NAMES.get(c, c)} ({c})" for c in codes]
     else:
@@ -938,12 +966,12 @@ def render_right_pane(state: MenuState, pane_height: int):
     _add("Folder", folder_val, folder_idx)
 
     _add("Model", model, fields.index("model"))
-    if model in ("kokoro", "edge", "xtts"):
+    if model in ("kokoro", "edge", "xtts", "spark"):
         lang_hint = " [Space]" if (focused and state.field_cursor == fields.index("lang")) else ""
         _add("Language", _lang_summary(state) + lang_hint, fields.index("lang"))
     if vf_idx is not None:
         _add("Voice", _selected_voice_name(state), vf_idx)
-    if model in ("edge", "kokoro", "xtts"):
+    if model in ("edge", "kokoro", "xtts", "spark"):
         _add("Speed", f"{state.speed:.1f}x", fields.index("speed"))
 
     body_parts = [field_table]
@@ -1493,6 +1521,9 @@ def _make_result(state: MenuState) -> MenuResult:
                 lang = state.xtts_sel[0]
             elif lang is None:
                 lang = config.TTS_LANGUAGE_CODES.get("xtts")
+        elif model == "spark":
+            # Spark-TTS auto-detects English/Chinese per sentence.
+            lang = state.spark_sel[0] if state.spark_sel else config.TTS_LANGUAGE_CODES.get("spark")
     return MenuResult(
         file_path=os.path.abspath(state.selected_file) if state.selected_file else "",
         tts_name=model,
@@ -1738,6 +1769,9 @@ def _wizard_lang_options(state: MenuState) -> list[tuple[str, str]]:
     if model == "xtts":
         return [(code, f"{XTTS_LANG_CODES[code]} ({code})")
                 for code in _order_langs("xtts", list(XTTS_LANG_CODES))]
+    if model == "spark":
+        return [(code, f"{SPARK_LANG_CODES[code]} ({code})")
+                for code in _order_langs("spark", list(SPARK_LANG_CODES))]
     return []
 
 
@@ -1753,6 +1787,8 @@ def _apply_wizard_choices(state: MenuState, wiz: WizardState) -> None:
         state.kokoro_sel = [c for c in wiz.chosen_langs if c in KOKORO_LANG_CODES]
     elif model == "xtts":
         state.xtts_sel = [c for c in wiz.chosen_langs if c in XTTS_LANG_CODES]
+    elif model == "spark":
+        state.spark_sel = [c for c in wiz.chosen_langs if c in SPARK_LANG_CODES]
     state.voice_filter = ""
     _set_voice_index(state, 0)
     _seed_default_voice(state)
@@ -2197,6 +2233,13 @@ async def run_start_menu(
         if not langs and not has_saved_langs:
             langs = _default_langs("xtts", list(XTTS_LANG_CODES))
         state.xtts_sel = _order_langs("xtts", langs)
+    if "spark" in models:
+        cli_lang = default_lang if default_lang in SPARK_LANG_CODES else ""
+        langs = [c for c in (saved_langs + [cli_lang] if cli_lang else saved_langs)
+                 if c in SPARK_LANG_CODES]
+        if not langs and not has_saved_langs:
+            langs = _default_langs("spark", list(SPARK_LANG_CODES))
+        state.spark_sel = _order_langs("spark", langs)
     if "edge" in models:
         langs = [c for c in saved_langs if c in edge_langs]
         if not langs and not has_saved_langs:
