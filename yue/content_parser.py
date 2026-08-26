@@ -439,27 +439,232 @@ class HTMLtoLines(HTMLParser):
         return line
 
 
+# ---------------------------------------------------------------------------
+# Front/back matter detection (table of contents, copyright, index, ...)
+# ---------------------------------------------------------------------------
+# Section headings that mark navigation/boilerplate Yue skips by default.
+# Matching is case-insensitive and ignores punctuation.
+FRONT_MATTER_TITLES = (
+    "title", "title page", "half title", "half-title", "copyright",
+    "copyright page", "copyright notice", "table of contents", "contents",
+    "dedication", "epigraph", "colophon", "about the publisher",
+    "publisher", "publisher's note", "about this book",
+)
+BACK_MATTER_TITLES = (
+    "index", "about the author", "glossary", "credits", "colophon",
+    "acknowledgments", "acknowledgements", "about the publisher",
+)
+
+# Filename fragments that mark navigation/boilerplate files inside an EPUB.
+# Kept conservative (single, distinctive words) to avoid false positives.
+FRONT_MATTER_FILE_FRAGMENTS = (
+    "toc", "copyright", "title", "dedicat", "colophon", "half",
+    "epigraph", "halftitle",
+)
+BACK_MATTER_FILE_FRAGMENTS = (
+    "index", "glossar", "about-the-author", "about_the_author", "credits",
+    "colophon", "acknowledg", "backmatter",
+)
+
+
+def _normalize_heading(text):
+    """Lowercase a line and strip punctuation so headings can be matched."""
+    t = text.strip().lower()
+    t = re.sub(r"[^\w\s]", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def _heading_matches(normalized, titles):
+    """True if `normalized` equals or is headed by one of `titles`."""
+    if not normalized:
+        return False
+    for title in titles:
+        nt = _normalize_heading(title)
+        if normalized == nt:
+            return True
+        if normalized.startswith(nt + " "):
+            return True
+    return False
+
+
+def _classify_section(lines, filename=None):
+    """Return 'front', 'back', or None for a parsed section (list of lines).
+
+    Checks the first few non-empty lines for a known front/back matter heading,
+    then falls back to the spine filename inside an EPUB.
+    """
+    checked = 0
+    for line in lines:
+        if not line.strip():
+            continue
+        norm = _normalize_heading(line)
+        if _heading_matches(norm, FRONT_MATTER_TITLES):
+            return "front"
+        if _heading_matches(norm, BACK_MATTER_TITLES):
+            return "back"
+        checked += 1
+        if checked >= 8:
+            break
+
+    if filename:
+        name = os.path.basename(filename).lower()
+        name = re.sub(r"\.[a-z0-9]+$", "", name)  # drop extension
+        name = name.replace("-", " ").replace("_", " ")
+        for frag in FRONT_MATTER_FILE_FRAGMENTS:
+            if frag.replace("-", " ").replace("_", " ") in name:
+                return "front"
+        for frag in BACK_MATTER_FILE_FRAGMENTS:
+            if frag.replace("-", " ").replace("_", " ") in name:
+                return "back"
+    return None
+
+
+def _is_toc_entry(text):
+    """Best-effort guess that a short line is a table-of-contents entry."""
+    t = text.strip()
+    if not t or len(t) > 60:
+        return False
+    # Trailing page number ("... 12") or dot leaders are strong TOC signals.
+    if re.search(r"\s+\d+\s*$", t):
+        return True
+    if re.search(r"\.{3,}", t):
+        return True
+    if re.search(r"\.\.\.\s*\d+$", t):
+        return True
+    return False
+
+
+def _is_short_boilerplate(line):
+    """Short, heading-like line with no sentence punctuation (boilerplate)."""
+    t = line.strip()
+    if not t or len(t) > 48:
+        return False
+    if re.search(r"[.!?。！？]$", t):
+        return False
+    return True
+
+
+# Words that begin the actual reading (reading this stops front-matter scanning).
+CONTENT_START_TITLES = (
+    "chapter", "part", "introduction", "preface", "prologue", "epilogue",
+    "foreword", "afterword", "appendix", "book", "volume",
+)
+
+
+def _is_content_start(normalized):
+    """True if a heading line marks where the real content begins."""
+    if not normalized:
+        return False
+    for title in CONTENT_START_TITLES:
+        if normalized == title:
+            return True
+        if normalized.startswith(title + " "):
+            return True
+    return False
+
+
+def _skip_front_matter(paragraphs):
+    """Drop leading title/copyright/TOC/dedication blocks from one chapter.
+
+    Walks from the start, consuming short heading-like boilerplate (title,
+    author, copyright notice, table of contents) and only returns a truncated
+    list if at least one recognised front-matter block was found. Stops at the
+    first paragraph that reads like real prose or a content-start heading.
+    """
+    i = 0
+    found_heading = False
+    while i < len(paragraphs):
+        norm = _normalize_heading(paragraphs[i])
+        if _heading_matches(norm, FRONT_MATTER_TITLES):
+            found_heading = True
+            i += 1
+            is_toc = _heading_matches(norm, ("table of contents", "contents"))
+            # Consume the body of this block: TOC entries, or short
+            # heading-like boilerplate, never past the start of real content.
+            while i < len(paragraphs):
+                if is_toc:
+                    if not _is_toc_entry(paragraphs[i]):
+                        break
+                else:
+                    # Short heading-like boilerplate only. Yield to the next
+                    # front-matter heading, real prose, or the content start.
+                    nxt = _normalize_heading(paragraphs[i])
+                    if not _is_short_boilerplate(paragraphs[i]):
+                        break
+                    if _is_content_start(nxt):
+                        break
+                    if _heading_matches(nxt, FRONT_MATTER_TITLES):
+                        break
+                i += 1
+        elif _is_short_boilerplate(paragraphs[i]):
+            # Title/author/date line etc. Keep scanning, but never past the
+            # point the actual content begins.
+            if _is_content_start(norm):
+                break
+            i += 1
+        else:
+            break
+    return paragraphs[i:] if found_heading else paragraphs
+
+
+def _skip_back_matter(paragraphs):
+    """Drop a trailing index/about/glossary block found in the latter half."""
+    n = len(paragraphs)
+    if n < 6:
+        return paragraphs
+    # Only scan the latter half so we never clip the actual story.
+    for idx in range(n // 2, n):
+        norm = _normalize_heading(paragraphs[idx])
+        if _heading_matches(norm, BACK_MATTER_TITLES):
+            return paragraphs[:idx]
+    return paragraphs
+
+
+def _strip_matter_from_chapters(chapters):
+    """Apply front/back matter filtering to single-file formats' chapters."""
+    from . import config
+
+    result = []
+    for chapter in chapters:
+        paragraphs = chapter
+        if config.SKIP_FRONT_MATTER:
+            paragraphs = _skip_front_matter(paragraphs)
+        if config.SKIP_BACK_MATTER:
+            paragraphs = _skip_back_matter(paragraphs)
+        if paragraphs:
+            result.append(paragraphs)
+    return result
+
+
 def extract_content(file_path, console):
     """Extract content from the file based on its extension."""
+    from . import config
+
     file_extension = os.path.splitext(file_path)[1].lower()
     if file_extension == '.epub':
+        # EPUBs are filtered per spine file inside _extract_content_epub.
         return _extract_content_epub(file_path, console)
     elif file_extension == '.pdf':
-        return _extract_content_pdf(file_path, console)
+        chapters = _extract_content_pdf(file_path, console)
     elif file_extension == '.txt':
-        return _extract_content_txt(file_path, console)
+        chapters = _extract_content_txt(file_path, console)
     elif file_extension == '.docx':
-        return _extract_content_docx(file_path, console)
+        chapters = _extract_content_docx(file_path, console)
     elif file_extension == '.html':
-        return _extract_content_html(file_path, console)
+        chapters = _extract_content_html(file_path, console)
     elif file_extension == '.rtf':
-        return _extract_content_rtf(file_path, console)
+        chapters = _extract_content_rtf(file_path, console)
     elif file_extension == '.md':
-        return _extract_content_md(file_path, console)
+        chapters = _extract_content_md(file_path, console)
     else:
         console.print(f"[bold red]Error: Unsupported file type '{file_extension}'. "
                      f"Supported formats: .epub, .pdf, .txt, .docx, .html, .rtf, .md[/bold red]")
         return []
+
+    if config.SKIP_FRONT_MATTER or config.SKIP_BACK_MATTER:
+        return _strip_matter_from_chapters(chapters)
+    return chapters
 
 def _extract_content_epub(file_path, console):
     """Extract content from EPUB using epr's cleaner approach"""
@@ -565,6 +770,14 @@ def _extract_content_epub(file_path, console):
                 lines = parser.get_lines()
                 
                 if lines:
+                    # Skip navigation/boilerplate spine files (title page,
+                    # TOC, copyright, index, ...) when enabled.
+                    from . import config
+                    kind = _classify_section(lines, filename=content_path)
+                    if kind == "front" and config.SKIP_FRONT_MATTER:
+                        continue
+                    if kind == "back" and config.SKIP_BACK_MATTER:
+                        continue
                     chapters.append(lines)
                     processed_files += 1
                     

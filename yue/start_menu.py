@@ -29,7 +29,7 @@ START_MENU_EXTENSIONS = (".epub", ".pdf", ".txt", ".docx", ".html", ".rtf", ".md
 
 # Chinese + English lead every language list and are the out-of-the-box
 # selection (kokoro splits English into American "a" / British "b").
-PINNED_LANGS = {"edge": ["zh", "en"], "kokoro": ["z", "a"]}
+PINNED_LANGS = {"edge": ["zh", "en"], "kokoro": ["z", "a"], "xtts": ["en", "zh-cn"]}
 
 # Kokoro language codes (see VOICES.md and kokoro pipeline LANG_CODES).
 KOKORO_LANG_CODES = {
@@ -100,6 +100,31 @@ KOKORO_VOICES = {
     ],
 }
 
+# XTTS v2 language codes (XTTS language ids).
+XTTS_LANG_CODES = {
+    "en": "English", "es": "Spanish", "fr": "French", "de": "German",
+    "it": "Italian", "pt": "Portuguese", "zh-cn": "Chinese (Mandarin)",
+    "ja": "Japanese", "ko": "Korean", "nl": "Dutch", "pl": "Polish",
+    "ru": "Russian", "ar": "Arabic", "hi": "Hindi",
+}
+
+# XTTS v2 voice profiles (name, gender) available in XTTS_PROFILES_DIR.
+XTTS_VOICES = [
+    ("en-US-AvaMultilingualNeural", "Female"),
+    ("en-US-EmmaMultilingualNeural", "Female"),
+    ("en-US-BrianMultilingualNeural", "Male"),
+    ("en-US-AndrewMultilingualNeural", "Male"),
+    ("en-AU-WilliamMultilingualNeural", "Male"),
+    ("fr-FR-VivienneMultilingualNeural", "Female"),
+    ("fr-FR-RemyMultilingualNeural", "Male"),
+    ("de-DE-SeraphinaMultilingualNeural", "Female"),
+    ("de-DE-FlorianMultilingualNeural", "Male"),
+    ("it-IT-GiuseppeMultilingualNeural", "Male"),
+    ("ko-KR-HyunsuMultilingualNeural", "Male"),
+    ("pt-BR-ThalitaMultilingualNeural", "Female"),
+    ("af_bella", "Female"),
+]
+
 # Fallback Edge voices (name, gender) used when the network fetch fails.
 EDGE_FALLBACK_VOICES = [
     ("en-US-JennyNeural", "Female"), ("en-US-AriaNeural", "Female"),
@@ -169,12 +194,14 @@ class MenuState:
     edge_voice_idx: int = 0
     voice_filter: str = ""
     kokoro_voice_idx: int = 0
+    xtts_voice_idx: int = 0
     speed: float = 1.0
     field_cursor: int = 0
     default_dir: str = ""           # persisted default start folder ("" = unset)
     edge_sel: list[str] = field(default_factory=list)  # selected edge codes ([] = all)
     edge_langs: list[str] = field(default_factory=list)  # available edge language codes
     kokoro_sel: list[str] = field(default_factory=list)  # selected kokoro codes ([] = all)
+    xtts_sel: list[str] = field(default_factory=list)  # selected xtts codes ([] = all)
     lang_picker: LangPickerState | None = None  # when set, the popup owns render/keys
     folder_picker: "FolderPickerState | None" = None  # ditto for the folder chooser
     status_msg: str | None = None   # transient feedback line (e.g. "Default folder set")
@@ -201,6 +228,8 @@ def _get_voice_index(state: MenuState) -> int:
         return state.edge_voice_idx
     if model == "kokoro":
         return state.kokoro_voice_idx
+    if model == "xtts":
+        return state.xtts_voice_idx
     return 0
 
 
@@ -210,6 +239,8 @@ def _set_voice_index(state: MenuState, new_idx: int) -> None:
         state.edge_voice_idx = new_idx
     elif model == "kokoro":
         state.kokoro_voice_idx = new_idx
+    elif model == "xtts":
+        state.xtts_voice_idx = new_idx
 
 
 def _current_voice_list(state: MenuState):
@@ -226,6 +257,9 @@ def _current_voice_list(state: MenuState):
         all_v = []
         for code in codes:
             all_v.extend((n, g) for n, g in KOKORO_VOICES.get(code, []))
+    elif model == "xtts":
+        codes = state.xtts_sel or list(XTTS_LANG_CODES)
+        all_v = list(XTTS_VOICES)
     elif model == "edge":
         sel = set(state.edge_sel)
         voices = state.edge_voices
@@ -262,6 +296,8 @@ def _seed_default_voice(state: MenuState) -> None:
         _seed_voice_by_name(state, config.TTS_VOICES.get("edge"))
     elif model == "kokoro":
         _seed_voice_by_name(state, config.TTS_VOICES.get("kokoro"))
+    elif model == "xtts":
+        _seed_voice_by_name(state, config.TTS_VOICES.get("xtts"))
 
 
 # ---------------------------------------------------------------------------
@@ -270,11 +306,9 @@ def _seed_default_voice(state: MenuState) -> None:
 
 def _settings_fields(state: MenuState) -> list[str]:
     model = state.models[state.model_idx] if state.models else "none"
-    if model == "kokoro":
-        return ["folder", "model", "voice", "lang", "speed", "launch"]
-    if model == "edge":
-        return ["folder", "model", "lang", "voice", "speed", "launch"]
-    return ["folder", "model", "launch"]
+    if model in ("edge", "kokoro", "xtts"):
+        return ["folder", "model", "lang", "voice", "speed"]
+    return ["folder", "model"]
 
 
 def _field_idx(state: MenuState, name: str) -> int | None:
@@ -287,7 +321,9 @@ def _voice_field_idx(state: MenuState) -> int | None:
 
 
 def _launch_field_idx(state: MenuState) -> int | None:
-    return _field_idx(state, "launch")
+    """Index of the bottom "Start Reading" action — a virtual row just below
+    the settings fields, so Launch is always one position away."""
+    return len(_settings_fields(state))
 
 
 def _folder_field_idx(state: MenuState) -> int | None:
@@ -299,6 +335,8 @@ def _selected_langs(state: MenuState) -> list[str]:
     model = state.models[state.model_idx] if state.models else "none"
     if model == "kokoro":
         return list(state.kokoro_sel)
+    if model == "xtts":
+        return list(state.xtts_sel)
     if model == "edge":
         return list(state.edge_sel)
     return []
@@ -309,6 +347,8 @@ def _set_selected_langs(state: MenuState, codes: list[str]) -> None:
     model = state.models[state.model_idx] if state.models else "none"
     if model == "kokoro":
         state.kokoro_sel = [c for c in codes if c in KOKORO_LANG_CODES]
+    elif model == "xtts":
+        state.xtts_sel = [c for c in codes if c in XTTS_LANG_CODES]
     elif model == "edge":
         state.edge_sel = [c for c in codes if c in state.edge_langs]
     state.voice_filter = ""
@@ -323,6 +363,8 @@ def _lang_summary(state: MenuState) -> str:
         return "All languages"
     if model == "kokoro":
         names = [f"{KOKORO_LANG_CODES.get(c, c)} ({c})" for c in codes]
+    elif model == "xtts":
+        names = [f"{XTTS_LANG_CODES.get(c, c)} ({c})" for c in codes]
     elif model == "edge":
         names = [f"{LANG_NAMES.get(c, c)} ({c})" for c in codes]
     else:
@@ -895,19 +937,16 @@ def render_right_pane(state: MenuState, pane_height: int):
     _add("Folder", folder_val, folder_idx)
 
     _add("Model", model, fields.index("model"))
-    if vf_idx is not None:
-        _add("Voice", _selected_voice_name(state), vf_idx)
-    if model in ("kokoro", "edge"):
+    if model in ("kokoro", "edge", "xtts"):
         lang_hint = " [Space]" if (focused and state.field_cursor == fields.index("lang")) else ""
         _add("Language", _lang_summary(state) + lang_hint, fields.index("lang"))
-    if model in ("edge", "kokoro"):
+    if vf_idx is not None:
+        _add("Voice", _selected_voice_name(state), vf_idx)
+    if model in ("edge", "kokoro", "xtts"):
         _add("Speed", f"{state.speed:.1f}x", fields.index("speed"))
-    if state.selected_file:
-        _add("Launch", "Start Reading", lf_idx, style="bold green")
-    else:
-        _add("Launch", "Select a book first", lf_idx, style="dim")
 
-    parts = [field_table]
+    body_parts = [field_table]
+
     if model != "none":
         names, sel = _current_voice_list(state)
         voice_table = Table(box=None, show_header=False, padding=0, expand=True)
@@ -915,12 +954,12 @@ def render_right_pane(state: MenuState, pane_height: int):
         voice_table.add_column("Voice", ratio=1, no_wrap=True, overflow="ellipsis")
         voice_table.add_column("Info", justify="right")
 
-        flt_label = f"Voices{(' [' + state.voice_filter + ']') if state.voice_filter else ''}"
+        flt_label = f"{model} Voices{(' [' + state.voice_filter + ']') if state.voice_filter else ''}"
         if voice_focused:
             flt_label += " (type to filter)"
         voice_table.add_row("", Text(flt_label, style="dim"), "")
 
-        max_visible = max(1, pane_height - len(fields) - 5)
+        max_visible = max(1, pane_height - len(fields) - 6)  # matches the mouse mapper
         total = len(names)
         start = max(0, sel - max_visible + 1) if sel >= max_visible else 0
         start = min(start, max(0, total - max_visible))
@@ -934,11 +973,31 @@ def render_right_pane(state: MenuState, pane_height: int):
                 style = None
                 prefix = " "
             voice_table.add_row(prefix, Text(name, no_wrap=True, overflow="ellipsis"), info, style=style)
-        parts.append(voice_table)
+        body_parts.append(voice_table)
 
-    content = Group(*parts) if len(parts) > 1 else parts[0]
+    body = Group(*body_parts) if len(body_parts) > 1 else body_parts[0]
+
+    # Full-width primary action button pinned to the bottom of the pane.
+    action_table = Table(box=None, show_header=False, padding=0, expand=True)
+    action_table.add_column("Action", ratio=1)
+    if state.selected_file:
+        btn_text = "  ▶  Start Reading  "
+        if focused and cursor == lf_idx:
+            action_table.add_row(Text(btn_text, justify="center", style="reverse bold green"))
+        else:
+            action_table.add_row(Text(btn_text, justify="center", style="bold green"))
+    else:
+        action_table.add_row(Text("  Select a book first  ", justify="center", style="dim"))
+
+    layout = Layout()
+    layout.split_column(
+        Layout(name="body", ratio=1),
+        Layout(name="action", size=1),
+    )
+    layout["body"].update(body)
+    layout["action"].update(action_table)
     return Panel(
-        content,
+        layout,
         title="[bold cyan]TTS Settings[/bold cyan]",
         border_style="cyan" if focused else "blue",
         box=box.ROUNDED,
@@ -953,7 +1012,7 @@ def render_footer(state: MenuState):
     elif state.pane_focus == "files":
         hint = "↑/↓ move · Enter open/select · type to search · s = set default folder · Backspace up · Esc back/quit · q quit"
     else:
-        hint = "↑/↓ move · Enter next/launch · Space on Language = pick languages · Esc back · Tab/← files · q quit"
+        hint = "↑/↓ move · Enter Start Reading · Space on Language = open picker · ←/→ cycle model · Esc back · Tab files · q quit"
     return Panel(Text(hint, style="dim"), border_style="blue", box=box.ROUNDED)
 
 
@@ -1129,7 +1188,7 @@ def _cycle_model(state: MenuState, delta: int) -> None:
     state.voice_filter = ""
     _set_voice_index(state, 0)
     _seed_default_voice(state)
-    state.field_cursor = min(state.field_cursor, len(_settings_fields(state)) - 1)
+    state.field_cursor = min(state.field_cursor, len(_settings_fields(state)))
 
 
 def _adjust_field(state: MenuState, delta: int) -> None:
@@ -1167,7 +1226,7 @@ def _handle_mouse(state: MenuState, button: int, x: int, y: int) -> str:
                 _move_voice(state, delta)
             else:
                 fields = _settings_fields(state)
-                state.field_cursor = max(0, min(len(fields) - 1, state.field_cursor + delta))
+                state.field_cursor = max(0, min(len(fields), state.field_cursor + delta))
         return "continue"
     if button != 0:
         return "continue"  # only left-click
@@ -1207,7 +1266,7 @@ def _handle_mouse(state: MenuState, button: int, x: int, y: int) -> str:
     vf_idx = _voice_field_idx(state)
     lf_idx = _launch_field_idx(state) or 0
     field_row = y - 3
-    if 0 <= field_row < num_fields:
+    if 0 <= field_row <= num_fields:
         state.field_cursor = field_row
         if field_row == lf_idx and state.selected_file:
             return "launch"
@@ -1217,9 +1276,12 @@ def _handle_mouse(state: MenuState, button: int, x: int, y: int) -> str:
         elif field_row == (_folder_field_idx(state) or 0) and "folder" in fields:
             _open_folder_picker(state)
         return "continue"
+    # The full-width action button is pinned to the bottom of the settings pane.
+    if y == height - 5 and state.selected_file:
+        return "launch"
     if vf_idx is not None:
         names, sel = _current_voice_list(state)
-        max_visible = max(1, (height - 3) - num_fields - 5)
+        max_visible = max(1, (height - 3) - num_fields - 6)
         start = max(0, sel - max_visible + 1) if sel >= max_visible else 0
         start = min(start, max(0, len(names) - max_visible))
         voice_row = y - (3 + num_fields + 1)
@@ -1309,7 +1371,6 @@ def handle_key(state: MenuState, key) -> str:
     # ---- settings pane ----
     fields = _settings_fields(state)
     vf_idx = _voice_field_idx(state)
-    lf_idx = _launch_field_idx(state)
     model = state.models[state.model_idx] if state.models else "none"
     folder_idx = _folder_field_idx(state)
     model_idx = fields.index("model")
@@ -1331,7 +1392,7 @@ def handle_key(state: MenuState, key) -> str:
         if voice_cycling:
             _move_voice(state, 1)
         else:
-            state.field_cursor = min(len(fields) - 1, state.field_cursor + 1)
+            state.field_cursor = min(len(fields), state.field_cursor + 1)
     elif key == "page_up":
         if voice_cycling:
             _move_voice(state, -10)
@@ -1341,11 +1402,11 @@ def handle_key(state: MenuState, key) -> str:
         if voice_cycling:
             _move_voice(state, 10)
         else:
-            state.field_cursor = len(fields) - 1
+            state.field_cursor = len(fields)
     elif key == "home":
         state.field_cursor = 0
     elif key == "end":
-        state.field_cursor = len(fields) - 1
+        state.field_cursor = len(fields)
     elif key == "left" or char == "h":
         if state.field_cursor == model_idx:
             _cycle_model(state, -1)
@@ -1365,7 +1426,9 @@ def handle_key(state: MenuState, key) -> str:
     elif char in ("+", "=", "."):
         _adjust_field(state, 1)
     elif key == "enter":
-        if state.field_cursor == lf_idx and state.selected_file:
+        # Primary action: with a book selected, Enter starts reading from any
+        # field (the Language/Folder pickers keep Enter for opening their popup).
+        if state.selected_file and state.field_cursor != lang_idx and state.field_cursor != folder_idx:
             return "launch"
         if lang_idx is not None and state.field_cursor == lang_idx:
             _open_lang_picker(state)
@@ -1373,7 +1436,7 @@ def handle_key(state: MenuState, key) -> str:
         if folder_idx is not None and state.field_cursor == folder_idx:
             _open_folder_picker(state)
             return "continue"
-        state.field_cursor = (state.field_cursor + 1) % len(fields)
+        state.field_cursor = (state.field_cursor + 1) % (len(fields) + 1)
     elif char == " " and lang_idx is not None and state.field_cursor == lang_idx:
         _open_lang_picker(state)
         return "continue"
@@ -1423,6 +1486,12 @@ def _make_result(state: MenuState) -> MenuResult:
             lang = _kokoro_code_for_voice(voice) if voice else ""
             if not lang and state.kokoro_sel:
                 lang = state.kokoro_sel[0]
+        elif model == "xtts":
+            # XTTS voices are multilingual; use the first selected language.
+            if state.xtts_sel:
+                lang = state.xtts_sel[0]
+            elif lang is None:
+                lang = config.TTS_LANGUAGE_CODES.get("xtts")
     return MenuResult(
         file_path=os.path.abspath(state.selected_file) if state.selected_file else "",
         tts_name=model,
@@ -1665,6 +1734,9 @@ def _wizard_lang_options(state: MenuState) -> list[tuple[str, str]]:
     if model == "kokoro":
         return [(code, f"{KOKORO_LANG_CODES[code]} ({code})")
                 for code in _order_langs("kokoro", list(KOKORO_LANG_CODES))]
+    if model == "xtts":
+        return [(code, f"{XTTS_LANG_CODES[code]} ({code})")
+                for code in _order_langs("xtts", list(XTTS_LANG_CODES))]
     return []
 
 
@@ -1678,6 +1750,8 @@ def _apply_wizard_choices(state: MenuState, wiz: WizardState) -> None:
         state.edge_sel = [c for c in wiz.chosen_langs if c in state.edge_langs]
     elif model == "kokoro":
         state.kokoro_sel = [c for c in wiz.chosen_langs if c in KOKORO_LANG_CODES]
+    elif model == "xtts":
+        state.xtts_sel = [c for c in wiz.chosen_langs if c in XTTS_LANG_CODES]
     state.voice_filter = ""
     _set_voice_index(state, 0)
     _seed_default_voice(state)
@@ -2115,6 +2189,13 @@ async def run_start_menu(
         if not langs and not has_saved_langs:
             langs = _default_langs("kokoro", list(KOKORO_LANG_CODES))
         state.kokoro_sel = _order_langs("kokoro", langs)
+    if "xtts" in models:
+        cli_lang = default_lang if default_lang in XTTS_LANG_CODES else ""
+        langs = [c for c in (saved_langs + [cli_lang] if cli_lang else saved_langs)
+                 if c in XTTS_LANG_CODES]
+        if not langs and not has_saved_langs:
+            langs = _default_langs("xtts", list(XTTS_LANG_CODES))
+        state.xtts_sel = _order_langs("xtts", langs)
     if "edge" in models:
         langs = [c for c in saved_langs if c in edge_langs]
         if not langs and not has_saved_langs:

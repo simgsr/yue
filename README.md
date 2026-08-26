@@ -22,6 +22,8 @@ Yue is a versatile terminal eBook and document reader that is designed to seamle
 | **Speed Adjustment**                 | Adjust text-to-speech playback speed from 1x to 3x for personalized listening experience       |
 | **Auto-Scroll & Precise Word Highlighting**        | Automatic scrolling and word-level highlighting synchronized with actual speech, improving focus and concentration     |
 | **Smart Persistence**                | Automatic progress saving, state restoration, and cross-session continuity for seamless reading|
+| **Skip Front & Back Matter**      | Automatically skips the title page, copyright, TOC, index, about-the-author/publisher and similar, so reading starts at the real content (configurable) |
+| **Save as Standard EPUB**      | Converts any single-file format (PDF, TXT, DOCX, HTML, RTF, MD) into a standard EPUB2 on request, for use in other readers |
 | **Fast Navigation**                  | Intuitive shortcuts, mouse support, smooth scrolling and chapters list for fast navigation.     |
 | **Extensive Customization**          | Fully customizable keyboard layouts (including Vim-style bindings), adjustable UI elements, colors, and display modes|
 | **Interactive Start Menu**           | Launch with no arguments to browse recent books and your filesystem, and set the TTS model, voice, language and speed before reading |
@@ -264,6 +266,21 @@ Yue allows you to customize the color theme, visual icons/symbols and all ui ele
 - **Default Theme** - The default colorful theme with various colors for different UI elements
 - **Black Theme** - A dark monochrome theme that's suitable for bright backgrounds
 - **White Theme** - A light monochrome theme that's suitable for dark backgrounds
+
+### Skip Front & Back Matter
+
+By default Yue skips the navigation and boilerplate sections of a book so reading starts at the actual content: the title page, copyright page, table of contents, dedication, index, about-the-author/publisher, credits, and similar. This is controlled by two settings in [config.py](yue/config.py):
+
+- `SKIP_FRONT_MATTER` (default `True`) — drops front matter (title, copyright, TOC, dedication, ...).
+- `SKIP_BACK_MATTER` (default `True`) — drops back matter (index, about the author, glossary, credits, ...).
+
+For EPUBs these are detected per spine file (by filename and heading) and dropped whole. For single-file formats (PDF, TXT, DOCX, HTML, RTF, Markdown) a conservative paragraph-level pass is applied. Set either flag to `False` to keep that content in the book.
+
+### Save as Standard EPUB
+
+Yue can repackage any single-file format (PDF, TXT, DOCX, HTML, RTF, Markdown) into a standard EPUB2 file — useful for moving a book to other readers or devices. When you open one of these formats, Yue asks whether you'd like to save a standard EPUB (it writes to `<same-name>.epub` next to the source). If the file has no readable text (e.g. an image-based PDF), Yue tells you it couldn't convert it.
+
+This is controlled by `OFFER_EPUB_CONVERSION` in [config.py](yue/config.py) (default `True`). The exported EPUB reflects the same settings you read with — for example, skipped front/back matter is left out. It is skipped automatically for the `--guide` file.
 
 ---
 

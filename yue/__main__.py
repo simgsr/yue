@@ -343,6 +343,13 @@ async def main():
                  tts_manager=tts_manager, available_tts=available_tts)
     if hasattr(args, 'speed'):
         reader.playback_speed = args.speed
+
+    # Offer to save single-file formats as a standard EPUB. Done here, before
+    # the terminal enters raw mode, so a plain yes/no prompt is safe. Skipped
+    # for the navigation guide so it is never offered on `--guide`.
+    if config.OFFER_EPUB_CONVERSION and not args.guide:
+        from . import epub_exporter
+        epub_exporter.offer_save_epub(args.file_path, reader.chapters, console)
         
     # Hide cursor, enable mouse tracking
     sys.stdout.write('\033[?1000h\033[?1006h\033[?25l')
