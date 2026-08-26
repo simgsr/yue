@@ -39,10 +39,44 @@ class TestNormalize(unittest.TestCase):
         self.assertIn("doctor Smith", out)
         self.assertIn("thirty-four", out)
 
+    def test_times(self):
+        self.assertEqual(self.normalize("at 6:00", "en"), "at six o'clock")
+        self.assertEqual(self.normalize("5:30pm", "en"), "five thirty p m")
+        self.assertEqual(self.normalize("at 5:30 p.m.", "en"), "at five thirty p m")
+        self.assertEqual(self.normalize("12:05", "en"), "twelve five")
+
+    def test_dates(self):
+        self.assertEqual(
+            self.normalize("2024-01-15", "en"),
+            "January fifteenth, twenty twenty-four",
+        )
+        self.assertEqual(
+            self.normalize("12/25/2024", "en"),
+            "December twenty-fifth, twenty twenty-four",
+        )
+        self.assertEqual(
+            self.normalize("Born January 15, 2024.", "en"),
+            "Born January fifteenth, twenty twenty-four.",
+        )
+        self.assertEqual(
+            self.normalize("Born on the 15 January 2024.", "en"),
+            "Born on the fifteenth of January, twenty twenty-four.",
+        )
+        self.assertEqual(
+            self.normalize("Born Jan. 5, 2024.", "en"),
+            "Born January fifth, twenty twenty-four.",
+        )
+
     def test_chinese_passthrough(self):
         self.assertEqual(self.normalize("三千四百万游客", "zh"), "三千四百万游客")
         # Chinese book sentence with digits stays untouched.
         self.assertEqual(self.normalize("有 34 个人。", "zh"), "有 34 个人。")
+
+    def test_traditional_chinese_to_simplified(self):
+        self.assertEqual(
+            self.normalize("這是一段傳統中文測試。", "zh"),
+            "这是一段传统中文测试。",
+        )
 
     def test_empty(self):
         self.assertEqual(self.normalize(""), "")

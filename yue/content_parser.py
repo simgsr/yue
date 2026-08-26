@@ -99,8 +99,9 @@ def sanitize_text_for_tts(text):
     text = re.sub(r'(?<=\w)-(?=\w)', ' ', text)
     
     # Remove special characters but keep Unicode letters, numbers, and basic punctuation.
-    # Include Chinese/Japanese punctuation and Indian Dandas (।॥).
-    sanitized = re.sub(r"[^\w\s.,:'();?!。，！？；：、।॥-]", '', text, flags=re.UNICODE)
+    # Include Chinese/Japanese punctuation and Indian Dandas (।॥). Keep "/" so
+    # slash-formatted dates (12/25/2024) survive to the TTS number normalizer.
+    sanitized = re.sub(r"[^\w\s.,:'();?!。，！？；：、।॥/-]", '', text, flags=re.UNICODE)
     
     # Collapse multiple spaces into single space
     sanitized = re.sub(r'\s+', ' ', sanitized)
