@@ -105,6 +105,21 @@ async def get_audio_duration(file_path):
     try: return float(stdout.decode().strip())
     except (ValueError, TypeError): return None
 
+async def _put_item(reader, item, timeout: float = 1.0):
+    """Put ``item`` on the audio queue, waiting for space.
+
+    A full queue is backpressure, not a failure: loop until there is room or the
+    reader stops. Returns False if reading stopped before the item was queued.
+    """
+    while reader.running:
+        try:
+            await asyncio.wait_for(reader.audio_queue.put(item), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            continue
+    return False
+
+
 async def play_from_current_position(reader):
     """Start the audio producer and player loops."""
     if not reader.is_paused and reader.running and reader.tts_model:
@@ -170,10 +185,9 @@ async def _produce_paragraph(reader, producer_pos, buffer_index):
         duration = await get_audio_duration(para_file)
         from .timing_calculator import process_tts_timing_data
         timing_info = process_tts_timing_data(paragraph_text, [], duration)
-        await asyncio.wait_for(
-            reader.audio_queue.put((para_file, c, p, 0, duration, timing_info)),
-            timeout=1.0,
-        )
+        ok = await _put_item(reader, (para_file, c, p, 0, duration, timing_info))
+        if not ok:
+            return None
     else:
         from .timing_calculator import process_tts_timing_data
         for i, seg in enumerate(segs):
@@ -186,10 +200,9 @@ async def _produce_paragraph(reader, producer_pos, buffer_index):
             # with the voice instead of lagging behind on the silence padding.
             lead, speech = measure_segment_speech(seg)
             timing_info = _segment_timing_info(sentences[i], speech, lead)
-            await asyncio.wait_for(
-                reader.audio_queue.put((seg, c, p, i, duration, timing_info)),
-                timeout=1.0,
-            )
+            ok = await _put_item(reader, (seg, c, p, i, duration, timing_info))
+            if not ok:
+                return None
 
     next_pos = reader._advance_position((c, p, len(sentences) - 1), mode='paragraph', wrap=False)
     return (next_pos, buffer_index) if next_pos else None
@@ -238,11 +251,13 @@ async def _producer_loop(reader):
     buffer_index = 0
     try:
         while reader.running:
-            if reader.audio_queue.full():
-                await asyncio.sleep(0.1)
-                continue
             # Paragraph-level synthesis (CosyVoice2): synthesize the whole
             # paragraph for natural prosody, then emit per-sentence segments.
+            # Run this BEFORE the queue-full check so the next paragraph's
+            # synthesis (the slow step, ~6-24s) overlaps with playback of the
+            # current paragraph instead of waiting for the queue to drain first
+            # (which used to cause a pause between every paragraph). Backpressure
+            # is applied when actually putting segments (see _put_item).
             if getattr(reader.tts_model, 'synthesize_paragraph', False):
                 try:
                     result = await _produce_paragraph(reader, producer_pos, buffer_index)
@@ -273,6 +288,10 @@ async def _producer_loop(reader):
                 if result is None:
                     break
                 producer_pos, buffer_index = result
+                continue
+
+            if reader.audio_queue.full():
+                await asyncio.sleep(0.1)
                 continue
             try:
                 c, p, s = producer_pos

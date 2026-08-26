@@ -80,7 +80,10 @@ COSYVOICE_WORKER_TIMEOUT = float(
 AUDIO_DATA_DIR = user_cache_dir("yue")
 os.makedirs(AUDIO_DATA_DIR, exist_ok=True)
 AUDIO_BUFFERS = [os.path.join(AUDIO_DATA_DIR, f"buffer_{i}") for i in range(6)]
-MAX_QUEUE_SIZE = 4
+# Number of audio items buffered ahead of the player. Needs to hold at least a
+# full CosyVoice paragraph (one item per sentence) plus the next paragraph, so
+# the producer can prefetch while the player plays, avoiding pauses.
+MAX_QUEUE_SIZE = 16
 OVERLAP_SECONDS = 0.5 # Seconds of overlap between sentences
 
 # Progress tracking settings
