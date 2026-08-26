@@ -7,10 +7,7 @@ keys are written; unknown keys in the file are ignored on load so hand-edited
 or older files never crash the reader.
 
 The path can be overridden with the YUE_SETTINGS_FILE environment variable
-(used by the pty test harness so it does not touch real user settings). The
-pre-rename name LUE_SETTINGS_FILE is still honoured as a fallback: a harness
-that set only the old name would otherwise fall through to this path without
-any error and read and write the developer's real settings.
+(used by the pty test harness so it does not touch real user settings).
 """
 
 import json
@@ -20,7 +17,6 @@ from . import config
 
 SETTINGS_FILE = (
     os.environ.get("YUE_SETTINGS_FILE")
-    or os.environ.get("LUE_SETTINGS_FILE")
     or os.path.join(config.PROGRESS_FILE_DIR, "settings.json")
 )
 

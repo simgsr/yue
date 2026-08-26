@@ -1,7 +1,6 @@
 """Configuration settings for the Yue eBook reader."""
 
 import os
-import shutil
 from platformdirs import user_data_dir, user_cache_dir
 
 # Default TTS model
@@ -44,51 +43,6 @@ OVERLAP_SECONDS = 0.5 # Seconds of overlap between sentences
 # Progress tracking settings
 PROGRESS_FILE_DIR = user_data_dir("yue")
 os.makedirs(PROGRESS_FILE_DIR, exist_ok=True)
-
-# The project was called "lue" before, so an existing install keeps its reading
-# progress and settings.json under that app name. Carry them over once, on the
-# first run after upgrading, or every book would silently restart at position 0
-# and the start menu would re-run its first-run wizard.
-LEGACY_DATA_DIR = user_data_dir("lue")
-
-
-def _is_user_state(name):
-    """True for the files we persist: per-book progress and settings.json."""
-    return name.endswith(".progress.json") or name == "settings.json"
-
-
-def migrate_legacy_data_dir(src=LEGACY_DATA_DIR, dst=PROGRESS_FILE_DIR):
-    """Copy pre-rename user state from `src` into `dst`, once.
-
-    Skipped entirely if `dst` already holds state, so this can never clobber
-    newer progress, and the originals are left in place as a fallback. Copy
-    failures are ignored: a missing bookmark must not stop the reader starting.
-
-    Returns the number of files copied (0 when nothing needed migrating).
-    """
-    if os.path.abspath(src) == os.path.abspath(dst) or not os.path.isdir(src):
-        return 0
-    try:
-        if any(_is_user_state(n) for n in os.listdir(dst)):
-            return 0
-        names = [n for n in os.listdir(src) if _is_user_state(n)]
-    except OSError:
-        return 0
-
-    copied = 0
-    for name in names:
-        source = os.path.join(src, name)
-        if not os.path.isfile(source):
-            continue
-        try:
-            shutil.copy2(source, os.path.join(dst, name))
-            copied += 1
-        except OSError:
-            continue
-    return copied
-
-
-migrate_legacy_data_dir()
 
 # General settings
 SHOW_ERRORS_ON_EXIT = True
