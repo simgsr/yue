@@ -745,8 +745,7 @@ class Yue:
 
     def _advance_position(self, current_pos, mode='sentence', wrap=True):
         c, p, s = current_pos
-        if mode == 'paragraph': p, s = p + 1, 0
-        elif mode == 'chapter':
+        if mode == 'chapter':
             c += 1
             if c < len(self.chapters):
                 p = self._get_first_valid_paragraph_in_chapter(c)
@@ -757,7 +756,6 @@ class Yue:
         while c < len(self.chapters):
             if p < len(self.chapters[c]):
                 if s < len(content_parser.split_into_sentences(self.chapters[c][p])):
-                    if mode == 'paragraph': s = 0
                     return c, p, s
                 p, s = p + 1, 0
             else: c, p, s = c + 1, 0, 0
@@ -766,9 +764,7 @@ class Yue:
 
     def _rewind_position(self, current_pos, mode='sentence'):
         c, p, s = current_pos
-        if mode == 'paragraph':
-            p, s = p - 1, 0
-        elif mode == 'chapter':
+        if mode == 'chapter':
             c -= 1
             if c >= 0:
                 p = self._get_first_valid_paragraph_in_chapter(c)
@@ -781,8 +777,6 @@ class Yue:
         while c >= 0:
             if p >= 0:
                 if s >= 0:
-                    if mode == 'paragraph':
-                        s = 0
                     return c, p, s
                 
                 p -= 1

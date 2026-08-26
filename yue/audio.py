@@ -4,7 +4,6 @@ import re
 import subprocess
 import logging
 from . import config, content_parser
-from .tts.paragraph_split import split_audio_by_silence, measure_segment_speech
 
 # This pattern is used to both clean text for TTS and detect sentence fragments.
 ABBREVIATION_PATTERN = r'\b(Mr|Mrs|Ms|Dr|Prof|Rev|Hon|Jr|Sr|Cpl|Sgt|Gen|Col|Capt|Lt|Pvt|vs|viz|Co|Inc|Ltd|Corp|St|Ave|Blvd)\.'
@@ -105,21 +104,6 @@ async def get_audio_duration(file_path):
     try: return float(stdout.decode().strip())
     except (ValueError, TypeError): return None
 
-async def _put_item(reader, item, timeout: float = 1.0):
-    """Put ``item`` on the audio queue, waiting for space.
-
-    A full queue is backpressure, not a failure: loop until there is room or the
-    reader stops. Returns False if reading stopped before the item was queued.
-    """
-    while reader.running:
-        try:
-            await asyncio.wait_for(reader.audio_queue.put(item), timeout=timeout)
-            return True
-        except asyncio.TimeoutError:
-            continue
-    return False
-
-
 async def play_from_current_position(reader):
     """Start the audio producer and player loops."""
     if not reader.is_paused and reader.running and reader.tts_model:
@@ -142,104 +126,6 @@ async def play_from_current_position(reader):
         reader.producer_task = asyncio.create_task(_producer_loop(reader))
         reader.player_task = asyncio.create_task(_player_loop(reader))
 
-async def _produce_paragraph(reader, producer_pos, buffer_index):
-    """Synthesize a whole paragraph as one audio unit and emit per-sentence
-    segments, so CosyVoice2 keeps natural continuous prosody across sentences.
-
-    Returns (next_producer_pos, buffer_index) or None when reading is done.
-    """
-    c, p, s = producer_pos
-    paragraph_text = reader.chapters[c][p]
-    sentences = content_parser.split_into_sentences(paragraph_text)
-    if not sentences:
-        next_pos = reader._advance_position(producer_pos, mode='paragraph', wrap=False)
-        return (next_pos, buffer_index) if next_pos else None
-
-    output_format = reader.tts_model.output_format
-    para_file = f"{config.AUDIO_BUFFERS[buffer_index]}.{output_format}"
-    for attempt in range(3):
-        try:
-            if os.path.exists(para_file):
-                os.remove(para_file)
-            break
-        except OSError:
-            if attempt < 2:
-                await asyncio.sleep(0.05)
-
-    sanitized = content_parser.sanitize_text_for_tts(paragraph_text)
-    if not sanitized or not sanitized.strip():
-        # Nothing speakable in this paragraph (e.g. a formatting/header line);
-        # skip it rather than sending empty text to the worker.
-        next_pos = reader._advance_position(producer_pos, mode='paragraph', wrap=False)
-        return (next_pos, buffer_index) if next_pos else None
-    await reader.tts_model.generate_audio(sanitized, para_file)
-    if not reader.running:
-        return None
-
-    seg_dir = config.AUDIO_DATA_DIR
-    segs = split_audio_by_silence(
-        para_file, len(sentences), seg_dir, out_prefix=f"para_{c}_{p}"
-    )
-    if not segs:
-        # Fall back to the whole paragraph as a single unit.
-        duration = await get_audio_duration(para_file)
-        from .timing_calculator import process_tts_timing_data
-        timing_info = process_tts_timing_data(paragraph_text, [], duration)
-        ok = await _put_item(reader, (para_file, c, p, 0, duration, timing_info))
-        if not ok:
-            return None
-    else:
-        from .timing_calculator import process_tts_timing_data
-        for i, seg in enumerate(segs):
-            if i >= len(sentences):
-                break
-            duration = await get_audio_duration(seg)
-            # The segment keeps the sentence-pause silence, so the audio file
-            # is longer than the actual speech. Time the word highlight against
-            # the spoken portion (offset by the leading silence) so it keeps up
-            # with the voice instead of lagging behind on the silence padding.
-            lead, speech = measure_segment_speech(seg)
-            timing_info = _segment_timing_info(sentences[i], speech, lead)
-            ok = await _put_item(reader, (seg, c, p, i, duration, timing_info))
-            if not ok:
-                return None
-
-    next_pos = reader._advance_position((c, p, len(sentences) - 1), mode='paragraph', wrap=False)
-    return (next_pos, buffer_index) if next_pos else None
-
-
-def _segment_timing_info(sentence: str, speech_duration: float, lead: float) -> dict:
-    """Word timings that track the actual spoken audio of a segment.
-
-    The reader highlights a word based on elapsed time since the segment started
-    playing. A segment file begins with ``lead`` seconds of silence, then speaks
-    for ``speech_duration`` seconds. Spacing the words over that spoken region
-    (offset by the leading silence) keeps the highlight with the voice instead of
-    drifting behind on the silence padding. Word selection matches the reader's
-    ``_new_sentence_started`` handler so the indices align.
-    """
-    words = [token for token in sentence.split() if re.search(r'[a-zA-Z0-9]', token)]
-    if not words:
-        return {
-            "word_timings": [],
-            "speech_duration": 0.0,
-            "total_duration": 0.0,
-            "word_mapping": None,
-        }
-    step = speech_duration / len(words) if speech_duration > 0 else 0.1
-    timings = []
-    t = lead
-    for w in words:
-        timings.append((w, t, t + step))
-        t += step
-    return {
-        "word_timings": timings,
-        "speech_duration": speech_duration,
-        "total_duration": speech_duration,
-        "word_mapping": None,
-    }
-
-
 async def _producer_loop(reader):
     """Producer loop to generate audio files."""
     if not reader.tts_model or not reader.tts_model.initialized:
@@ -251,45 +137,6 @@ async def _producer_loop(reader):
     buffer_index = 0
     try:
         while reader.running:
-            # Paragraph-level synthesis (CosyVoice2): synthesize the whole
-            # paragraph for natural prosody, then emit per-sentence segments.
-            # Run this BEFORE the queue-full check so the next paragraph's
-            # synthesis (the slow step, ~6-24s) overlaps with playback of the
-            # current paragraph instead of waiting for the queue to drain first
-            # (which used to cause a pause between every paragraph). Backpressure
-            # is applied when actually putting segments (see _put_item).
-            if getattr(reader.tts_model, 'synthesize_paragraph', False):
-                try:
-                    result = await _produce_paragraph(reader, producer_pos, buffer_index)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as e:
-                    # A failed paragraph (empty text, worker timeout, split
-                    # error, ...) must not kill the producer: log it and move on
-                    # to the next paragraph so reading continues.
-                    try:
-                        para_for_log = reader.chapters[producer_pos[0]][producer_pos[1]]
-                        logging.error(
-                            f"Paragraph synthesis failed at {producer_pos}: {e}\n"
-                            f"Paragraph: '{para_for_log[:120]}...'", exc_info=True
-                        )
-                    except Exception:  # noqa: BLE001
-                        logging.error(
-                            f"Paragraph synthesis failed at {producer_pos}: {e}",
-                            exc_info=True,
-                        )
-                    next_pos = reader._advance_position(
-                        producer_pos, mode='paragraph', wrap=False
-                    )
-                    if not next_pos:
-                        break
-                    producer_pos = next_pos
-                    continue
-                if result is None:
-                    break
-                producer_pos, buffer_index = result
-                continue
-
             if reader.audio_queue.full():
                 await asyncio.sleep(0.1)
                 continue

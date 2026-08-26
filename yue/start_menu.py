@@ -29,67 +29,7 @@ START_MENU_EXTENSIONS = (".epub", ".pdf", ".txt", ".docx", ".html", ".rtf", ".md
 
 # Chinese + English lead every language list and are the out-of-the-box
 # selection (kokoro splits English into American "a" / British "b").
-PINNED_LANGS = {"edge": ["zh", "en"], "kokoro": ["z", "a"], "cosyvoice": ["zh", "en"]}
-
-
-# CosyVoice2 reference-voice prompts (each is a cloned speaker + transcript).
-# The chosen voice pins the language used to pick the prompt audio.
-COSYVOICE_LANG_CODES = {
-    "zh": "Chinese",
-    "en": "English",
-}
-COSYVOICE_VOICES = {
-    "zh": [("zh_cosy", "Chinese Female")],
-    "en": [("en_cosy", "English Female")],
-}
-
-# The two built-in reference prompts are shown in the menu as en_cosy / zh_cosy
-# (so they read as "the CosyVoice default", distinct from the cloned prompts
-# like en_<name>). They still load the en.wav / zh.wav prompts under the hood,
-# so these map the menu-facing name back to the prompt id the worker expects
-# (identity for any other prompt id).
-_COSYVOICE_PROMPT_FOR_NAME = {"en_cosy": "en", "zh_cosy": "zh"}
-
-
-def _cosyvoice_name_for_prompt(prompt):
-    """Menu-facing voice name for a prompt id (en -> en_cosy, zh -> zh_cosy)."""
-    for name, p in _COSYVOICE_PROMPT_FOR_NAME.items():
-        if p == prompt:
-            return name
-    return prompt
-
-
-def _cosyvoice_prompt_for_name(name):
-    """Prompt id for a menu-facing voice name (en_cosy -> en, identity otherwise)."""
-    return _COSYVOICE_PROMPT_FOR_NAME.get(name, name)
-
-
-def _cosyvoice_voices_by_lang() -> dict[str, list[tuple[str, str]]]:
-    """Discover CosyVoice reference-voice prompts from the prompts dir.
-
-    Each voice is a pair `<id>.wav` + `<id>.txt` in config.COSYVOICE_PROMPT_DIR.
-    The language is the part of the id before the first "_" (or the whole id);
-    unknown langs default to zh. Falls back to the built-in zh/en prompts if the
-    dir is unavailable.
-    """
-    result: dict[str, list[tuple[str, str]]] = {"zh": [], "en": []}
-    default_labels = {"zh": "Chinese Female", "en": "English Female"}
-    pdir = getattr(config, "COSYVOICE_PROMPT_DIR", None)
-    if pdir and os.path.isdir(pdir):
-        for wav in sorted(os.listdir(pdir)):
-            if not wav.endswith(".wav"):
-                continue
-            vid = wav[:-4]
-            lang = vid.split("_")[0] if "_" in vid else vid
-            if lang not in result:
-                lang = "zh"
-            stem = vid.split("_", 1)[1] if "_" in vid else vid
-            label = default_labels.get(vid, stem.replace("_", " ").title())
-            result[lang].append((_cosyvoice_name_for_prompt(vid), label))
-    for lang in ("zh", "en"):
-        if not result[lang]:
-            result[lang] = COSYVOICE_VOICES.get(lang, [])
-    return result
+PINNED_LANGS = {"edge": ["zh", "en"], "kokoro": ["z", "a"]}
 
 
 # Kokoro language codes (see VOICES.md and kokoro pipeline LANG_CODES).
@@ -230,14 +170,12 @@ class MenuState:
     edge_voice_idx: int = 0
     voice_filter: str = ""
     kokoro_voice_idx: int = 0
-    cosyvoice_voice_idx: int = 0
     speed: float = 1.0
     field_cursor: int = 0
     default_dir: str = ""           # persisted default start folder ("" = unset)
     edge_sel: list[str] = field(default_factory=list)  # selected edge codes ([] = all)
     edge_langs: list[str] = field(default_factory=list)  # available edge language codes
     kokoro_sel: list[str] = field(default_factory=list)  # selected kokoro codes ([] = all)
-    cosyvoice_sel: list[str] = field(default_factory=list)  # selected cosyvoice codes
     lang_picker: LangPickerState | None = None  # when set, the popup owns render/keys
     folder_picker: "FolderPickerState | None" = None  # ditto for the folder chooser
     status_msg: str | None = None   # transient feedback line (e.g. "Default folder set")
@@ -264,8 +202,6 @@ def _get_voice_index(state: MenuState) -> int:
         return state.edge_voice_idx
     if model == "kokoro":
         return state.kokoro_voice_idx
-    if model == "cosyvoice":
-        return state.cosyvoice_voice_idx
     return 0
 
 
@@ -275,8 +211,6 @@ def _set_voice_index(state: MenuState, new_idx: int) -> None:
         state.edge_voice_idx = new_idx
     elif model == "kokoro":
         state.kokoro_voice_idx = new_idx
-    elif model == "cosyvoice":
-        state.cosyvoice_voice_idx = new_idx
 
 
 def _current_voice_list(state: MenuState):
@@ -300,12 +234,6 @@ def _current_voice_list(state: MenuState):
             voices = [v for v in voices
                       if (v.get("Locale", "") or "").split("-")[0].lower() in sel]
         all_v = [(v.get("ShortName", ""), v.get("Gender", "")) for v in voices]
-    elif model == "cosyvoice":
-        codes = state.cosyvoice_sel or list(COSYVOICE_LANG_CODES)
-        all_v = []
-        voices_by_lang = _cosyvoice_voices_by_lang()
-        for code in codes:
-            all_v.extend((n, g) for n, g in voices_by_lang.get(code, []))
     else:
         return [], 0
     filtered = [(n, g) for n, g in all_v if not flt or flt in n.lower()]
@@ -335,8 +263,6 @@ def _seed_default_voice(state: MenuState) -> None:
         _seed_voice_by_name(state, config.TTS_VOICES.get("edge"))
     elif model == "kokoro":
         _seed_voice_by_name(state, config.TTS_VOICES.get("kokoro"))
-    elif model == "cosyvoice":
-        _seed_voice_by_name(state, _cosyvoice_name_for_prompt(config.TTS_VOICES.get("cosyvoice")))
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +271,7 @@ def _seed_default_voice(state: MenuState) -> None:
 
 def _settings_fields(state: MenuState) -> list[str]:
     model = state.models[state.model_idx] if state.models else "none"
-    if model in ("edge", "kokoro", "cosyvoice"):
+    if model in ("edge", "kokoro"):
         return ["folder", "model", "lang", "voice", "speed"]
     return ["folder", "model"]
 
@@ -374,8 +300,6 @@ def _selected_langs(state: MenuState) -> list[str]:
     model = state.models[state.model_idx] if state.models else "none"
     if model == "kokoro":
         return list(state.kokoro_sel)
-    if model == "cosyvoice":
-        return list(state.cosyvoice_sel)
     if model == "edge":
         return list(state.edge_sel)
     return []
@@ -386,8 +310,6 @@ def _set_selected_langs(state: MenuState, codes: list[str]) -> None:
     model = state.models[state.model_idx] if state.models else "none"
     if model == "kokoro":
         state.kokoro_sel = [c for c in codes if c in KOKORO_LANG_CODES]
-    elif model == "cosyvoice":
-        state.cosyvoice_sel = [c for c in codes if c in COSYVOICE_LANG_CODES]
     elif model == "edge":
         state.edge_sel = [c for c in codes if c in state.edge_langs]
     state.voice_filter = ""
@@ -402,8 +324,6 @@ def _lang_summary(state: MenuState) -> str:
         return "All languages"
     if model == "kokoro":
         names = [f"{KOKORO_LANG_CODES.get(c, c)} ({c})" for c in codes]
-    elif model == "cosyvoice":
-        names = [f"{COSYVOICE_LANG_CODES.get(c, c)} ({c})" for c in codes]
     elif model == "edge":
         names = [f"{LANG_NAMES.get(c, c)} ({c})" for c in codes]
     else:
@@ -976,12 +896,12 @@ def render_right_pane(state: MenuState, pane_height: int):
     _add("Folder", folder_val, folder_idx)
 
     _add("Model", model, fields.index("model"))
-    if model in ("kokoro", "edge", "cosyvoice"):
+    if model in ("kokoro", "edge"):
         lang_hint = " [Space]" if (focused and state.field_cursor == fields.index("lang")) else ""
         _add("Language", _lang_summary(state) + lang_hint, fields.index("lang"))
     if vf_idx is not None:
         _add("Voice", _selected_voice_name(state), vf_idx)
-    if model in ("edge", "kokoro", "cosyvoice"):
+    if model in ("edge", "kokoro"):
         _add("Speed", f"{state.speed:.1f}x", fields.index("speed"))
 
     body_parts = [field_table]
@@ -1511,14 +1431,6 @@ def _kokoro_code_for_voice(voice: str) -> str:
     return ""
 
 
-def _cosyvoice_code_for_voice(voice: str) -> str:
-    """Return the COSYVOICE lang code whose voice list contains `voice`."""
-    for code, voices in _cosyvoice_voices_by_lang().items():
-        if any(name == voice for name, _g in voices):
-            return code
-    return ""
-
-
 def _make_result(state: MenuState) -> MenuResult:
     model = state.models[state.model_idx] if state.models else "none"
     voice = None
@@ -1533,13 +1445,6 @@ def _make_result(state: MenuState) -> MenuResult:
             lang = _kokoro_code_for_voice(voice) if voice else ""
             if not lang and state.kokoro_sel:
                 lang = state.kokoro_sel[0]
-        elif model == "cosyvoice":
-            # The chosen reference voice (zh/en) pins the language, and the
-            # menu-facing name maps back to the prompt id the worker loads.
-            lang = _cosyvoice_code_for_voice(voice) if voice else ""
-            if not lang and state.cosyvoice_sel:
-                lang = state.cosyvoice_sel[0]
-            voice = _cosyvoice_prompt_for_name(voice)
     return MenuResult(
         file_path=os.path.abspath(state.selected_file) if state.selected_file else "",
         tts_name=model,
@@ -1782,9 +1687,6 @@ def _wizard_lang_options(state: MenuState) -> list[tuple[str, str]]:
     if model == "kokoro":
         return [(code, f"{KOKORO_LANG_CODES[code]} ({code})")
                 for code in _order_langs("kokoro", list(KOKORO_LANG_CODES))]
-    if model == "cosyvoice":
-        return [(code, f"{COSYVOICE_LANG_CODES[code]} ({code})")
-                for code in _order_langs("cosyvoice", list(COSYVOICE_LANG_CODES))]
     return []
 
 
@@ -1798,8 +1700,6 @@ def _apply_wizard_choices(state: MenuState, wiz: WizardState) -> None:
         state.edge_sel = [c for c in wiz.chosen_langs if c in state.edge_langs]
     elif model == "kokoro":
         state.kokoro_sel = [c for c in wiz.chosen_langs if c in KOKORO_LANG_CODES]
-    elif model == "cosyvoice":
-        state.cosyvoice_sel = [c for c in wiz.chosen_langs if c in COSYVOICE_LANG_CODES]
     state.voice_filter = ""
     _set_voice_index(state, 0)
     _seed_default_voice(state)
@@ -2237,13 +2137,6 @@ async def run_start_menu(
         if not langs and not has_saved_langs:
             langs = _default_langs("kokoro", list(KOKORO_LANG_CODES))
         state.kokoro_sel = _order_langs("kokoro", langs)
-    if "cosyvoice" in models:
-        cli_lang = default_lang if default_lang in COSYVOICE_LANG_CODES else ""
-        langs = [c for c in (saved_langs + [cli_lang] if cli_lang else saved_langs)
-                 if c in COSYVOICE_LANG_CODES]
-        if not langs and not has_saved_langs:
-            langs = _default_langs("cosyvoice", list(COSYVOICE_LANG_CODES))
-        state.cosyvoice_sel = _order_langs("cosyvoice", langs)
     if "edge" in models:
         langs = [c for c in saved_langs if c in edge_langs]
         if not langs and not has_saved_langs:

@@ -5,8 +5,6 @@ rich>=14.1.0
 PyMuPDF>=1.26.3
 Markdown>=3.8.2
 platformdirs>=4.3.8
-# Traditional Chinese -> Simplified conversion for CosyVoice2 (t2s)
-opencc-python-reimplemented>=0.1.7
 
 # Default TTS model
 edge-tts>=7.2.7

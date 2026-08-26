@@ -11,79 +11,34 @@ DEFAULT_TTS_MODEL = "edge"
 TTS_VOICES = {
     "edge": "en-US-JennyNeural",
     "kokoro": "af_heart",
-    "cosyvoice": "zh",  # default reference prompt (zh = Chinese female voice)
 }
 
 # Language codes for TTS models that require them
 TTS_LANGUAGE_CODES = {
     "kokoro": "a",  # a=English, e=Spanish, j=Japanese, etc.
-    "cosyvoice": "zh",  # CosyVoice2 auto-detects EN/CN; lang picks the prompt voice
 }
 
 # TTS model-specific seconds of overlap between sentences (overrides default OVERLAP_SECONDS if specified).
 # A NEGATIVE value means a real pause is inserted between sentences instead of
-# overlapping them. CosyVoice2 already adds natural prosodic pauses at punctuation,
-# so overlapping would cut those off; a small negative overlap keeps a natural rhythm.
+# overlapping them.
 TTS_OVERLAP_SECONDS = {
     "kokoro": 0.6,
-    "cosyvoice": -0.12,
 }
 
 # Extra pause (seconds) inserted at paragraph boundaries, per model.
 TTS_PARAGRAPH_PAUSE_SECONDS = {
     "edge": 0.4,
     "kokoro": 0.5,
-    "cosyvoice": 0.55,
 }
 # Fallback used when a model has no specific paragraph pause set.
 PARAGRAPH_PAUSE_SECONDS = 0.5
-
-# CosyVoice2 runs as a separate subprocess under its own venv (it pins
-# torch/transformers versions that must not touch the reader's venv). It uses a
-# JSON-lines protocol over stdin/stdout (see cosyvoice_tts_worker.py).
-COSYVOICE_REPO = os.environ.get(
-    "YUE_COSYVOICE_REPO",
-    "/Users/randallsim/Documents/python_project/tts-training/CosyVoice",
-)
-COSYVOICE_MODEL_DIR = os.environ.get(
-    "YUE_COSYVOICE_MODEL_DIR",
-    "/Users/randallsim/Documents/python_project/tts-training/pretrained_models/CosyVoice2-0.5B",
-)
-COSYVOICE_PROMPT_DIR = os.environ.get(
-    "YUE_COSYVOICE_PROMPT_DIR",
-    "/Users/randallsim/Documents/python_project/tts-training/cosyvoice_prompts",
-)
-# Reference-voice prompts: each voice is a pair <id>.wav + <id>.txt in the
-# prompt dir. <id> is the voice name shown in the reader (e.g. "zh" = Chinese
-# female, "en" = English female, or "zh_amy" for a custom voice). The language
-# is the part of the id before the first "_" (falling back to the whole id);
-# the .txt must be the exact transcript of the .wav. Drop in your own pair to
-# add a voice — the reader discovers them automatically at startup.
-COSYVOICE_WORKER_PYTHON = os.environ.get(
-    "YUE_COSYVOICE_WORKER_PYTHON",
-    "/Users/randallsim/Documents/python_project/tts-training/.venv-cosyvoice/bin/python",
-)
-COSYVOICE_WORKER_SCRIPT = os.environ.get(
-    "YUE_COSYVOICE_WORKER_SCRIPT",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts", "cosyvoice_tts_worker.py"),
-)
-# Upper bound on how long a single synthesis may block waiting for the worker's
-# reply. CosyVoice paragraph synthesis is slow (tens of seconds), but if the
-# worker ever wedges (e.g. an MPS deadlock) the executor thread would otherwise
-# sit in readline() forever and hang the reader on quit. On timeout the worker
-# is killed so the pipeline recovers instead of freezing.
-COSYVOICE_WORKER_TIMEOUT = float(
-    os.environ.get("YUE_COSYVOICE_WORKER_TIMEOUT", "180")
-)
 
 # Audio processing settings
 AUDIO_DATA_DIR = user_cache_dir("yue")
 os.makedirs(AUDIO_DATA_DIR, exist_ok=True)
 AUDIO_BUFFERS = [os.path.join(AUDIO_DATA_DIR, f"buffer_{i}") for i in range(6)]
-# Number of audio items buffered ahead of the player. Needs to hold at least a
-# full CosyVoice paragraph (one item per sentence) plus the next paragraph, so
-# the producer can prefetch while the player plays, avoiding pauses.
-MAX_QUEUE_SIZE = 16
+# Number of audio items buffered ahead of the player.
+MAX_QUEUE_SIZE = 4
 OVERLAP_SECONDS = 0.5 # Seconds of overlap between sentences
 
 # Progress tracking settings
