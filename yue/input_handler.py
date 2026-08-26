@@ -15,9 +15,7 @@ DEFAULT_KEYBOARD_SHORTCUTS = {
     "tts_controls": {
         "play_pause": " ",
         "decrease_speed": ",",
-        "increase_speed": ".",
-        "decrease_temperature": "c",
-        "increase_temperature": "w"
+        "increase_speed": "."
     },
     "display_controls": {},
     "application": {
@@ -175,10 +173,6 @@ def _process_normal_key(reader, data):
         cmd = 'decrease_speed'
     elif _matches_shortcut(data, tts_shortcuts.get("increase_speed", ".")):
         cmd = 'increase_speed'
-    elif _matches_shortcut(data, tts_shortcuts.get("decrease_temperature", "c")):
-        cmd = 'decrease_temperature'
-    elif _matches_shortcut(data, tts_shortcuts.get("increase_temperature", "w")):
-        cmd = 'increase_temperature'
 
     if cmd:
         reader.post_command(cmd)

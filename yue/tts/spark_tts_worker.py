@@ -1,7 +1,7 @@
 """Spark-TTS worker (JSON-lines over stdin/stdout) for the Yue reader.
 
 Spark-TTS is an efficient LLM-based bilingual (English + Chinese) TTS. Like the
-XTTS worker, this is a standalone subprocess driven by the reader:
+other reader workers, this is a standalone subprocess driven by the reader:
 
     Request  -> {"text": "...", "gender": "female", "pitch": "moderate",
                  "speed": "moderate", "prompt_path": null, "prompt_text": null}

@@ -743,30 +743,6 @@ class Yue:
         # Return the speed indicator without leading space
         return f"ˣ{superscript_str}"
 
-    def _increase_temperature(self):
-        """Increase the TTS sampling temperature (less deterministic)."""
-        levels = [round(i * 0.1, 1) for i in range(1, 16)]  # 0.1 to 1.5
-        cur = config.XTTS_TEMPERATURE
-        idx = min(range(len(levels)), key=lambda i: abs(levels[i] - cur))
-        if idx < len(levels) - 1:
-            config.XTTS_TEMPERATURE = levels[idx + 1]
-            return True
-        return False
-
-    def _decrease_temperature(self):
-        """Decrease the TTS decoding temperature (more deterministic)."""
-        levels = [round(i * 0.1, 1) for i in range(1, 16)]  # 0.1 to 1.5
-        cur = config.XTTS_TEMPERATURE
-        idx = min(range(len(levels)), key=lambda i: abs(levels[i] - cur))
-        if idx > 0:
-            config.XTTS_TEMPERATURE = levels[idx - 1]
-            return True
-        return False
-
-    def _get_temperature_display(self):
-        """Get the current TTS temperature for display, e.g. 't0.6'."""
-        return f"t{config.XTTS_TEMPERATURE:.1f}"
-
     def _advance_position(self, current_pos, mode='sentence', wrap=True):
         c, p, s = current_pos
         if mode == 'paragraph': p, s = p + 1, 0
@@ -1795,16 +1771,6 @@ class Yue:
                     # Force immediate UI update to show new speed
                     asyncio.create_task(ui.display_ui(self))
                     # Restart audio with new speed if currently playing
-                    if not self.is_paused and self.tts_model:
-                        self.pending_restart_task = asyncio.create_task(self._restart_audio_after_navigation())
-            elif cmd == 'increase_temperature':
-                if self._increase_temperature():
-                    asyncio.create_task(ui.display_ui(self))
-                    if not self.is_paused and self.tts_model:
-                        self.pending_restart_task = asyncio.create_task(self._restart_audio_after_navigation())
-            elif cmd == 'decrease_temperature':
-                if self._decrease_temperature():
-                    asyncio.create_task(ui.display_ui(self))
                     if not self.is_paused and self.tts_model:
                         self.pending_restart_task = asyncio.create_task(self._restart_audio_after_navigation())
             elif cmd == 'decrease_speed':

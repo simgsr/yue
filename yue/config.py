@@ -5,30 +5,24 @@ import shutil
 from platformdirs import user_data_dir, user_cache_dir
 
 # Default TTS model
-DEFAULT_TTS_MODEL = "xtts"
+DEFAULT_TTS_MODEL = "edge"
 
 # Default voices for TTS models
 TTS_VOICES = {
     "edge": "en-US-JennyNeural",
     "kokoro": "af_heart",
-    "xtts": "en-US-AvaMultilingualNeural",
     "spark": "female",  # virtual speaker (gender) — spark is bilingual EN/CN
 }
 
 # Language codes for TTS models that require them
 TTS_LANGUAGE_CODES = {
     "kokoro": "a",  # a=English, e=Spanish, j=Japanese, etc.
-    "xtts": "en",   # XTTS v2 language id (en, zh-cn, es, fr, ...)
     "spark": "en",  # Spark-TTS auto-detects English/Chinese per sentence
 }
 
 # TTS model-specific seconds of overlap between sentences (overrides default OVERLAP_SECONDS if specified)
 TTS_OVERLAP_SECONDS = {
     "kokoro": 0.6,
-    # XTTS already ends each utterance with a short natural pause. A large
-    # overlap cuts into that pause and makes sentences feel rushed, so keep it
-    # small (next sentence starts only slightly before the current tail ends).
-    "xtts": 0.1,
     # Spark-TTS reads at a steady pace with natural pauses; a small overlap
     # keeps sentences flowing without cutting into the natural rhythm.
     "spark": 0.15,
@@ -53,50 +47,6 @@ SPARK_TTS_WORKER_SCRIPT = os.environ.get(
     "YUE_SPARK_TTS_WORKER_SCRIPT",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts", "spark_tts_worker.py"),
 )
-
-# XTTS v2 model checkpoint directory (contains config.json, model.pth, vocab.json).
-XTTS_CHECKPOINT_DIR = os.environ.get(
-    "YUE_XTTS_CHECKPOINT_DIR",
-    "/Users/randallsim/Documents/python_project/tts-training/checkpoints/xtts_v2",
-)
-
-# Directory containing XTTS v2 .pt voice profiles (gpt_cond_latent + speaker_embedding).
-XTTS_PROFILES_DIR = os.environ.get(
-    "YUE_XTTS_PROFILES_DIR",
-    "/Users/randallsim/Documents/python_project/tts-training/edge_voice_profiles/profiles",
-)
-
-# XTTS runs in a separate Python 3.10 venv (the coqui TTS package does not
-# support Python 3.12). Yue drives the importable ``yue_voice`` package from
-# that interpreter — ``python -m <XTTS_MODULE> worker|server`` — so it can run
-# and trigger the XTTS server entirely on its own.
-XTTS_WORKER_PYTHON = os.environ.get(
-    "YUE_XTTS_WORKER_PYTHON",
-    "/Users/randallsim/Documents/python_project/tts-training/.venv/bin/python",
-)
-# The installed package exposing the XTTS engine/server/worker (importable by
-# any Python code; `pip install yue_voice`). Override to point at a fork.
-XTTS_MODULE = os.environ.get("YUE_XTTS_MODULE", "yue_voice")
-# Where the standalone XTTS HTTP server binds when launched via `yue xtts-server`.
-XTTS_SERVER_HOST = os.environ.get("YUE_XTTS_HOST", "0.0.0.0")
-XTTS_SERVER_PORT = int(os.environ.get("YUE_XTTS_PORT", "8765"))
-
-# Target trailing silence (the pause after a full stop) that the XTTS worker
-# pads each sentence to, in seconds. Tune this to control how much breathing
-# room there is between sentences. 0 disables the padding.
-XTTS_TRAILING_PAUSE = float(os.environ.get("YUE_XTTS_TRAILING_PAUSE", "0.4"))
-
-# Per-voice XTTS synthesis speed multiplier (<1 = slower, >1 = faster; 1.0 =
-# normal). Some profiles read faster than others (af_bella runs ~35% faster
-# than the Edge-derived voices), so give them a slight slowdown. Tune per voice.
-XTTS_VOICE_SPEEDS = {
-    "af_bella": 0.95,
-}
-
-# XTTS decoder sampling temperature. Lower = more deterministic/more consistent
-# pacing (less "sometimes fast, sometimes slow"); higher = more natural variety
-# but more erratic timing. XTTS's own default is 0.75.
-XTTS_TEMPERATURE = float(os.environ.get("YUE_XTTS_TEMPERATURE", "0.6"))
 
 # Audio processing settings
 AUDIO_DATA_DIR = user_cache_dir("yue")

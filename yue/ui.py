@@ -493,14 +493,13 @@ def _compute_subtitle_hitboxes(segments, width):
 def get_compact_subtitle(reader, width):
     """Generate a compact subtitle (status bar) based on terminal width.
 
-    Navigation is driven by the arrow keys and TTS by the c/w temperature keys
-    plus the ,/. speed keys, so only those (and quit) are shown here.
+    Navigation is driven by the arrow keys and TTS by the ,/. speed keys, so
+    only those (and quit) are shown here.
     """
     status_icon = ICONS.PLAYING if not reader.is_paused else ICONS.PAUSED
     status_text = "PLAYING" if not reader.is_paused else "PAUSED"
 
     speed_indicator = reader._get_speed_display() if hasattr(reader, '_get_speed_display') else ""
-    temp_display = reader._get_temperature_display() if hasattr(reader, '_get_temperature_display') else ""
 
     keyboard_shortcuts = get_keyboard_shortcuts()
     tts_shortcuts = keyboard_shortcuts.get("tts_controls", {})
@@ -510,8 +509,6 @@ def get_compact_subtitle(reader, width):
     down_key = "↓"
     left_key = "←"
     right_key = "→"
-    temp_down_key = format_key_for_display(tts_shortcuts.get("decrease_temperature", "c"))
-    temp_up_key = format_key_for_display(tts_shortcuts.get("increase_temperature", "w"))
     quit_key = format_key_for_display(app_shortcuts.get("quit", "q"))
     sep = ICONS.SEPARATOR
 
@@ -526,8 +523,6 @@ def get_compact_subtitle(reader, width):
     status_plain = f"{status_icon} {status_text}"
     if speed_indicator:
         status_plain += f" {speed_indicator}"
-    if temp_display:
-        status_plain += f" {temp_display}"
     status_color = COLORS.PLAYING_STATUS if not reader.is_paused else COLORS.PAUSED_STATUS
 
     rich_result = (
@@ -535,8 +530,6 @@ def get_compact_subtitle(reader, width):
         f"[{COLORS.SEPARATORS}]{line_sep}[/{COLORS.SEPARATORS}] "
         f"[{COLORS.CONTROL_KEYS}]{left_key}{sep}{right_key}[/{COLORS.CONTROL_KEYS}] "
         f"[{COLORS.ARROW_ICONS}]{up_key}{sep}{down_key}[/{COLORS.ARROW_ICONS}] "
-        f"[{COLORS.SEPARATORS}]{line_sep}[/{COLORS.SEPARATORS}] "
-        f"[{COLORS.CONTROL_KEYS}]{temp_down_key}{sep}{temp_up_key}[/{COLORS.CONTROL_KEYS}] "
         f"[{COLORS.SEPARATORS}]{line_sep}[/{COLORS.SEPARATORS}] "
         f"[{COLORS.CONTROL_KEYS}]{quit_key}[/{COLORS.CONTROL_KEYS}] {ICONS.QUIT}"
     )
@@ -551,10 +544,6 @@ def get_compact_subtitle(reader, width):
         ('prev_paragraph', up_key),
         (None, sep),
         ('next_paragraph', down_key),
-        (None, f" {line_sep} "),
-        ('decrease_temperature', temp_down_key),
-        (None, sep),
-        ('increase_temperature', temp_up_key),
         (None, f" {line_sep} "),
         ('quit', quit_key),
         (None, f" {ICONS.QUIT}"),
