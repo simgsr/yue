@@ -73,16 +73,6 @@ XTTS_VOICE_SPEEDS = {
 # but more erratic timing. XTTS's own default is 0.75.
 XTTS_TEMPERATURE = float(os.environ.get("YUE_XTTS_TEMPERATURE", "0.6"))
 
-# XTTS speaks each sentence at its own natural tempo, so adjacent sentences can
-# vary widely (we measured ~100-190 wpm for the same voice). To keep the reading
-# pace steady, the reader time-stretches each synthesized sentence to this target
-# words-per-minute. tempo_factor is clamped to [XTTS_TEMPO_CLAMP_MIN, MAX] so
-# extreme outliers are pulled in without over-distorting the voice.
-XTTS_TARGET_WPM = float(os.environ.get("YUE_XTTS_TARGET_WPM", "165"))
-XTTS_TEMPO_CLAMP_MIN = float(os.environ.get("YUE_XTTS_TEMPO_CLAMP_MIN", "0.7"))
-XTTS_TEMPO_CLAMP_MAX = float(os.environ.get("YUE_XTTS_TEMPO_CLAMP_MAX", "1.6"))
-
-
 # Audio processing settings
 AUDIO_DATA_DIR = user_cache_dir("yue")
 os.makedirs(AUDIO_DATA_DIR, exist_ok=True)

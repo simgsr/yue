@@ -104,59 +104,6 @@ async def get_audio_duration(file_path):
     try: return float(stdout.decode().strip())
     except (ValueError, TypeError): return None
 
-
-async def normalize_speech_tempo(file_path, num_words, current_duration, target_wpm=None, clamp=None):
-    """Time-stretch a speech file in place so its reading pace is steady.
-
-    XTTS speaks each sentence at its own tempo, so adjacent sentences can vary
-    widely in speed (measured ~100-190 wpm for one voice). This stretches or
-    compresses ``file_path`` so its duration matches ``num_words`` at
-    ``target_wpm`` words-per-minute, using an ffmpeg ``atempo`` filter (in place).
-
-    Returns the new audio duration (float), or ``None`` if no change was made
-    (already close to target, or a stretch failed).
-    """
-    if not file_path or not num_words or not current_duration:
-        return None
-    if target_wpm is None:
-        target_wpm = config.XTTS_TARGET_WPM
-    if clamp is None:
-        clamp = (config.XTTS_TEMPO_CLAMP_MIN, config.XTTS_TEMPO_CLAMP_MAX)
-    target_duration = (num_words / target_wpm) * 60.0
-    if target_duration <= 0:
-        return None
-    # atempo is a speed multiplier: new_duration = current / tempo, so to reach
-    # target_duration we need tempo = current_duration / target_duration.
-    tempo = current_duration / target_duration
-    lo, hi = clamp
-    tempo = max(lo, min(hi, tempo))
-    if abs(tempo - 1.0) < 0.03:
-        return None
-
-    import tempfile
-    _, ext = os.path.splitext(file_path)
-    tmp_fd, tmp = tempfile.mkstemp(suffix=ext or ".wav")
-    os.close(tmp_fd)
-    cmd = ["ffmpeg", "-y", "-i", file_path, "-filter:a", f"atempo={tempo:.4f}",
-           "-acodec", "pcm_s16le", tmp]
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        rc = await proc.wait()
-    except Exception:
-        rc = 1
-    if rc != 0:
-        try: os.remove(tmp)
-        except OSError: pass
-        return None
-    try:
-        os.replace(tmp, file_path)
-    except OSError:
-        try: os.remove(tmp)
-        except OSError: pass
-        return None
-    return await get_audio_duration(file_path)
-
 async def play_from_current_position(reader):
     """Start the audio producer and player loops."""
     if not reader.is_paused and reader.running and reader.tts_model:
@@ -252,19 +199,6 @@ async def _producer_loop(reader):
                 duration = await get_audio_duration(output_filename)
                 
                 if not reader.running: break
-
-                # Keep XTTS reading pace steady: time-stretch each sentence to a
-                # consistent target WPM so adjacent sentences don't read at wildly
-                # different speeds. Re-estimate timing for the new duration so the
-                # word highlight stays in sync with the (possibly stretched) audio.
-                if getattr(reader.tts_model, 'name', '') == 'xtts' and duration:
-                    num_words = len(original_text.split())
-                    new_duration = await normalize_speech_tempo(
-                        output_filename, num_words, duration)
-                    if new_duration:
-                        duration = new_duration
-                        from .timing_calculator import process_tts_timing_data
-                        timing_info = process_tts_timing_data(original_text, [], duration)
                 
                 # If no timing info was generated, create a fallback structure
                 # Pass original_text to timing calculator for proper word mapping
