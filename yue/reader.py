@@ -138,9 +138,11 @@ class Yue:
             self._load_content(quiet=True)
         except content_parser.ContentExtractionError as e:
             # The new book has no readable text: keep the current book and tell
-            # the user, rather than leaving the reader in a broken state.
+            # the user, rather than leaving the reader in a broken state. Drop
+            # the unreadable book from the recent-books list too.
             self.file_path, self.book_title, self.progress_file = old_path, old_title, old_progress
             self.chapters = old_chapters
+            progress_manager.remove_progress_for_path(new_path)
             self.console.print(f"[bold red]Error: {e}[/bold red]")
             self.console.print("Staying on the current book.")
             asyncio.create_task(ui.display_ui(self))

@@ -20,6 +20,26 @@ def get_progress_file_path(book_title):
     safe_title = re.sub(r'[^A-Za-z0-9]+', '', book_title)
     return os.path.join(config.PROGRESS_FILE_DIR, f"{safe_title}.progress.json")
 
+def remove_progress_for_path(file_path):
+    """Delete any progress file whose original_file_path matches `file_path`.
+
+    Used when a book can no longer be read (e.g. no extractable text), so it
+    stops appearing in the recent-books list. Returns the number of files
+    removed.
+    """
+    target = os.path.abspath(file_path)
+    removed = 0
+    for pf in glob.glob(os.path.join(config.PROGRESS_FILE_DIR, "*.progress.json")):
+        try:
+            with open(pf, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if os.path.abspath(data.get("original_file_path", "")) == target:
+                os.remove(pf)
+                removed += 1
+        except (json.JSONDecodeError, IOError, OSError):
+            continue
+    return removed
+
 def load_progress(progress_file):
     """
     Load basic reading progress from file.

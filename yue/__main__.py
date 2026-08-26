@@ -348,7 +348,9 @@ async def main():
                          tts_manager=tts_manager, available_tts=available_tts)
         except content_parser.ContentExtractionError as e:
             console.print(f"[bold red]Error: {e}[/bold red]")
-            # Go back to the menu so the user can pick another book.
+            # Drop the unreadable book from the recent-books list so it stops
+            # appearing in the menu, then go back to the menu for another pick.
+            progress_manager.remove_progress_for_path(args.file_path)
             args.menu = True
             args.file_path = None
             continue
