@@ -44,6 +44,33 @@ COSYVOICE_VOICES = {
 }
 
 
+def _cosyvoice_voices_by_lang() -> dict[str, list[tuple[str, str]]]:
+    """Discover CosyVoice reference-voice prompts from the prompts dir.
+
+    Each voice is a pair `<id>.wav` + `<id>.txt` in config.COSYVOICE_PROMPT_DIR.
+    The language is the part of the id before the first "_" (or the whole id);
+    unknown langs default to zh. Falls back to the built-in zh/en prompts if the
+    dir is unavailable.
+    """
+    result: dict[str, list[tuple[str, str]]] = {"zh": [], "en": []}
+    default_labels = {"zh": "Chinese Female", "en": "English Female"}
+    pdir = getattr(config, "COSYVOICE_PROMPT_DIR", None)
+    if pdir and os.path.isdir(pdir):
+        for wav in sorted(os.listdir(pdir)):
+            if not wav.endswith(".wav"):
+                continue
+            vid = wav[:-4]
+            lang = vid.split("_")[0] if "_" in vid else vid
+            if lang not in result:
+                lang = "zh"
+            label = default_labels.get(vid, vid.replace("_", " ").title())
+            result[lang].append((vid, label))
+    for lang in ("zh", "en"):
+        if not result[lang]:
+            result[lang] = COSYVOICE_VOICES.get(lang, [])
+    return result
+
+
 # Kokoro language codes (see VOICES.md and kokoro pipeline LANG_CODES).
 KOKORO_LANG_CODES = {
     "a": "American English",
@@ -255,8 +282,9 @@ def _current_voice_list(state: MenuState):
     elif model == "cosyvoice":
         codes = state.cosyvoice_sel or list(COSYVOICE_LANG_CODES)
         all_v = []
+        voices_by_lang = _cosyvoice_voices_by_lang()
         for code in codes:
-            all_v.extend((n, g) for n, g in COSYVOICE_VOICES.get(code, []))
+            all_v.extend((n, g) for n, g in voices_by_lang.get(code, []))
     else:
         return [], 0
     filtered = [(n, g) for n, g in all_v if not flt or flt in n.lower()]
@@ -1464,7 +1492,7 @@ def _kokoro_code_for_voice(voice: str) -> str:
 
 def _cosyvoice_code_for_voice(voice: str) -> str:
     """Return the COSYVOICE lang code whose voice list contains `voice`."""
-    for code, voices in COSYVOICE_VOICES.items():
+    for code, voices in _cosyvoice_voices_by_lang().items():
         if any(name == voice for name, _g in voices):
             return code
     return ""

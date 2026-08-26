@@ -5,7 +5,7 @@ reader over stdin/stdout. The model requires a reference prompt audio + its
 transcript for every synthesis; we pick a per-language prompt voice.
 
 Protocol:
-  in:  {"text": str, "lang": "zh"|"en", "out": str}
+  in:  {"text": str, "voice": str, "out": str}   # voice = prompt id (e.g. "zh"|"en"|"zh_amy")
   out: {"ok": true, "path": str}  |  {"error": str}
 
 stdout carries JSON responses; the model's own logging/tqdm is routed to stderr
@@ -27,13 +27,25 @@ def emit(obj):
     _REAL_STDOUT.flush()
 
 
-def _load_prompt(prompt_dir, lang):
-    key = "zh" if str(lang).lower().startswith("zh") else "en"
-    wav = os.path.join(prompt_dir, f"{key}.wav")
-    txt_path = os.path.join(prompt_dir, f"{key}.txt")
-    with open(txt_path, encoding="utf-8") as f:
-        text = f.read().strip()
-    return wav, text
+def _load_prompt(prompt_dir, voice):
+    """Return (wav_path, text) for a prompt id, falling back along lang → zh.
+
+    A prompt id is the stem of a pair `<id>.wav` / `<id>.txt` in the prompts
+    dir. The part before the first "_" (or the whole id) is the language used
+    for the fallback chain.
+    """
+    cands = [voice] if voice else []
+    if voice and "_" in voice:
+        cands.append(voice.split("_")[0])
+    cands += ["zh"]
+    for cand in cands:
+        wav = os.path.join(prompt_dir, f"{cand}.wav")
+        txt = os.path.join(prompt_dir, f"{cand}.txt")
+        if os.path.exists(wav) and os.path.exists(txt):
+            with open(txt, encoding="utf-8") as f:
+                return wav, f.read().strip()
+    # No prompt at all: fall back to a silent/empty text so the model still runs.
+    return os.path.join(prompt_dir, "zh.wav"), ""
 
 
 def main():
@@ -79,7 +91,7 @@ def main():
             continue
         t0 = time.time()
         try:
-            prompt_wav, prompt_text = _load_prompt(prompt_dir, req.get("lang", "zh"))
+            prompt_wav, prompt_text = _load_prompt(prompt_dir, req.get("voice", ""))
             chunks = [
                 o["tts_speech"]
                 for o in cv.inference_zero_shot(text, prompt_text, prompt_wav, speed=1.0)

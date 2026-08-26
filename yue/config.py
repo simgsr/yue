@@ -41,6 +41,12 @@ COSYVOICE_PROMPT_DIR = os.environ.get(
     "YUE_COSYVOICE_PROMPT_DIR",
     "/Users/randallsim/Documents/python_project/tts-training/cosyvoice_prompts",
 )
+# Reference-voice prompts: each voice is a pair <id>.wav + <id>.txt in the
+# prompt dir. <id> is the voice name shown in the reader (e.g. "zh" = Chinese
+# female, "en" = English female, or "zh_amy" for a custom voice). The language
+# is the part of the id before the first "_" (falling back to the whole id);
+# the .txt must be the exact transcript of the .wav. Drop in your own pair to
+# add a voice — the reader discovers them automatically at startup.
 COSYVOICE_WORKER_PYTHON = os.environ.get(
     "YUE_COSYVOICE_WORKER_PYTHON",
     "/Users/randallsim/Documents/python_project/tts-training/.venv-cosyvoice/bin/python",

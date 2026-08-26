@@ -123,7 +123,7 @@ class CosyVoiceTTS(TTSBase):
         return True
 
     def _blocking_generate(self, text, output_path):
-        request = {"text": text, "lang": self.lang, "out": output_path}
+        request = {"text": text, "voice": self.voice, "out": output_path}
         self._proc.stdin.write(json.dumps(request) + "\n")
         self._proc.stdin.flush()
         line = self._proc.stdout.readline()
