@@ -71,7 +71,7 @@ class XttsTTS(TTSBase):
                 "XTTS_TRAILING_PAUSE": str(config.XTTS_TRAILING_PAUSE),
             }
             self._proc = subprocess.Popen(
-                [config.XTTS_WORKER_PYTHON, config.XTTS_WORKER_SCRIPT],
+                [config.XTTS_WORKER_PYTHON, "-m", config.XTTS_MODULE, "worker"],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

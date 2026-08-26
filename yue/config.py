@@ -42,15 +42,19 @@ XTTS_PROFILES_DIR = os.environ.get(
 )
 
 # XTTS runs in a separate Python 3.10 venv (the coqui TTS package does not
-# support Python 3.12). These point at that interpreter and the worker script.
+# support Python 3.12). Yue drives the importable ``yue_voice`` package from
+# that interpreter — ``python -m <XTTS_MODULE> worker|server`` — so it can run
+# and trigger the XTTS server entirely on its own.
 XTTS_WORKER_PYTHON = os.environ.get(
     "YUE_XTTS_WORKER_PYTHON",
     "/Users/randallsim/Documents/python_project/tts-training/.venv/bin/python",
 )
-XTTS_WORKER_SCRIPT = os.environ.get(
-    "YUE_XTTS_WORKER_SCRIPT",
-    "/Users/randallsim/Documents/python_project/tts-training/xtts_worker.py",
-)
+# The installed package exposing the XTTS engine/server/worker (importable by
+# any Python code; `pip install yue_voice`). Override to point at a fork.
+XTTS_MODULE = os.environ.get("YUE_XTTS_MODULE", "yue_voice")
+# Where the standalone XTTS HTTP server binds when launched via `yue xtts-server`.
+XTTS_SERVER_HOST = os.environ.get("YUE_XTTS_HOST", "0.0.0.0")
+XTTS_SERVER_PORT = int(os.environ.get("YUE_XTTS_PORT", "8765"))
 
 # Target trailing silence (the pause after a full stop) that the XTTS worker
 # pads each sentence to, in seconds. Tune this to control how much breathing

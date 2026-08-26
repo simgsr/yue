@@ -123,6 +123,7 @@ XTTS_VOICES = [
     ("ko-KR-HyunsuMultilingualNeural", "Male"),
     ("pt-BR-ThalitaMultilingualNeural", "Female"),
     ("af_bella", "Female"),
+    ("mutlif_bella", "Female"),
 ]
 
 # Fallback Edge voices (name, gender) used when the network fetch fails.

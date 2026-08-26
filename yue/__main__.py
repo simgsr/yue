@@ -398,8 +398,35 @@ async def main():
                 except OSError:
                     pass
 
+def _run_xtts_server():
+    """Launch the ``yue_voice`` XTTS HTTP server, replacing the current process.
+
+    Runs ``python -m yue_voice server`` on the configured Python 3.10
+    interpreter so Yue can start the server entirely on its own (no external
+    checkout needed). Runs in the foreground; Ctrl-C stops it. Override the
+    interpreter/paths/bind with the YUE_XTTS_* env vars (see ``config.py``).
+    """
+    env = {
+        **os.environ,
+        "XTTS_CKPT_DIR": config.XTTS_CHECKPOINT_DIR,
+        "XTTS_PROFILES_DIR": config.XTTS_PROFILES_DIR,
+        "XTTS_HOST": config.XTTS_SERVER_HOST,
+        "XTTS_PORT": str(config.XTTS_SERVER_PORT),
+        "XTTS_TRAILING_PAUSE": str(config.XTTS_TRAILING_PAUSE),
+    }
+    python = config.XTTS_WORKER_PYTHON
+    print(f"[yue] Launching XTTS server via {python} -m {config.XTTS_MODULE} server")
+    print(f"[yue] checkpoint: {config.XTTS_CHECKPOINT_DIR}")
+    print(f"[yue] profiles:   {config.XTTS_PROFILES_DIR}")
+    print(f"[yue] bind:       {config.XTTS_SERVER_HOST}:{config.XTTS_SERVER_PORT}")
+    os.execve(python, [python, "-m", config.XTTS_MODULE, "server"], env)
+
+
 def cli():
     """Synchronous entry point for the command-line interface."""
+    if len(sys.argv) >= 2 and sys.argv[1] == "xtts-server":
+        _run_xtts_server()
+        return
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
