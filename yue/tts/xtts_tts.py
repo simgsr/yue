@@ -36,6 +36,7 @@ class XttsTTS(TTSBase):
     def __init__(self, console: Console, voice: str = None, lang: str = None):
         super().__init__(console, voice, lang)
         self._proc: subprocess.Popen | None = None
+        self._stderr_task = None
 
         if self.voice is None:
             self.voice = config.TTS_VOICES.get(self.name)
@@ -79,6 +80,12 @@ class XttsTTS(TTSBase):
                 bufsize=1,
                 env=env,
             )
+            # Drain the worker's stderr continuously. The coqui/TTS library
+            # writes progress/warnings to stderr during model load and synthesis;
+            # if it fills the 64KB pipe buffer the worker blocks on write and the
+            # reader (which reads stdout) deadlocks with it — the "reader stalls /
+            # repeats after a few sentences" bug. Draining keeps the pipe open.
+            self._start_stderr_drain()
         except FileNotFoundError:
             self.console.print(
                 f"[bold red]Error: XTTS worker interpreter not found: "
@@ -104,7 +111,44 @@ class XttsTTS(TTSBase):
         self.console.print("[green]XTTS v2 model is available.[/green]")
         return True
 
+    def _start_stderr_drain(self) -> None:
+        """Kick off a background thread that reads the worker's stderr so the
+        pipe buffer can never fill and deadlock the worker against the reader.
+        """
+        if self._proc is None or self._proc.stderr is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is None:
+            return
+        try:
+            self._stderr_task = loop.run_in_executor(None, self._drain_stderr_blocking)
+        except RuntimeError:
+            self._stderr_task = None
+
+    def _drain_stderr_blocking(self) -> None:
+        """Blocking loop, run in an executor thread: consume worker stderr lines.
+        Ends on EOF (worker process exited) or if the handle is gone.
+        """
+        proc = self._proc
+        if proc is None or proc.stderr is None:
+            return
+        try:
+            for line in proc.stderr:
+                if line and line.strip():
+                    logging.debug("XTTS worker stderr: %s", line.rstrip())
+        except Exception:  # noqa: BLE001
+            pass
+
     def _shutdown(self) -> None:
+        if self._stderr_task is not None:
+            try:
+                self._stderr_task.cancel()
+            except Exception:  # noqa: BLE001
+                pass
+            self._stderr_task = None
         if self._proc is not None:
             try:
                 self._proc.stdin.close()
