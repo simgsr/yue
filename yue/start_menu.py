@@ -63,7 +63,8 @@ def _cosyvoice_voices_by_lang() -> dict[str, list[tuple[str, str]]]:
             lang = vid.split("_")[0] if "_" in vid else vid
             if lang not in result:
                 lang = "zh"
-            label = default_labels.get(vid, vid.replace("_", " ").title())
+            stem = vid.split("_", 1)[1] if "_" in vid else vid
+            label = default_labels.get(vid, stem.replace("_", " ").title())
             result[lang].append((vid, label))
     for lang in ("zh", "en"):
         if not result[lang]:
