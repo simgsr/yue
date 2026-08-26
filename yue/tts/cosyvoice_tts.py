@@ -94,6 +94,10 @@ class CosyVoiceTTS(TTSBase):
             "YUE_COSYVOICE_REPO": config.COSYVOICE_REPO,
             "YUE_COSYVOICE_MODEL_DIR": config.COSYVOICE_MODEL_DIR,
             "YUE_COSYVOICE_PROMPT_DIR": config.COSYVOICE_PROMPT_DIR,
+            # onnxruntime's Microsoft telemetry logger can deadlock/abort on
+            # macOS (a recursive_mutex::lock failure terminates the worker),
+            # taking the CosyVoice worker down mid-read. Disable it up front.
+            "ORT_DISABLE_TELEMETRY": "1",
         }
         try:
             self._proc = subprocess.Popen(
@@ -224,15 +228,41 @@ class CosyVoiceTTS(TTSBase):
         finally:
             self.initialized = False
 
+    def _worker_alive(self):
+        """True if the worker subprocess is still running."""
+        if self._proc is None:
+            return False
+        try:
+            return self._proc.poll() is None
+        except Exception:  # noqa: BLE001
+            return False
+
     async def generate_audio(self, text: str, output_path: str):
-        if not self.initialized or self._proc is None:
-            raise RuntimeError("CosyVoice has not been initialized.")
         from .text_normalize import normalize_tts_text
         # CosyVoice2's English number/date/abbreviation normalization is weak;
         # spell English digits out so they read correctly. Chinese passes through.
         text = normalize_tts_text(text, getattr(self, "lang", ""))
-        fut = self._run_blocking_in_daemon(self._blocking_generate, text, output_path)
-        await asyncio.wrap_future(fut)
+
+        for attempt in (1, 2):
+            if not self._worker_alive():
+                # Worker crashed (e.g. an onnxruntime abort) or was killed on a
+                # timeout. Restart it once so reading can resume instead of
+                # silently stopping for the rest of the session.
+                self._proc = None
+                self.initialized = False
+                await self.initialize()
+            if not self.initialized or self._proc is None:
+                raise RuntimeError("CosyVoice has not been initialized.")
+
+            fut = self._run_blocking_in_daemon(self._blocking_generate, text, output_path)
+            try:
+                await asyncio.wrap_future(fut)
+                return
+            except Exception as e:  # noqa: BLE001
+                if attempt == 1 and not self._worker_alive():
+                    logging.warning("CosyVoice worker died (%s); restarting", e)
+                    continue
+                raise
 
     async def shutdown(self):
         """Terminate the worker subprocess so the reader can exit cleanly.

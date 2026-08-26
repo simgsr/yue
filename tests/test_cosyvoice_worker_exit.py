@@ -1,11 +1,12 @@
-"""Guard against the CosyVoice worker causing a reader quit-hang.
+"""Guard against the CosyVoice worker causing a reader quit-hang or crash-stop.
 
 A wedged worker (or a grandchild that inherits the worker's pipes) used to keep
 the synthesis thread blocked in read(), and because that thread ran on the
 non-daemon default executor, ``concurrent.futures._python_exit`` joined it at
 interpreter exit — the process hung on quit. The synthesis and stderr reads now
 run on daemon threads and shutdown must return promptly regardless of a wedged
-worker.
+worker. If the worker instead *crashes* mid-read (e.g. an onnxruntime abort),
+generate_audio must restart it and retry so reading resumes.
 """
 
 import asyncio
@@ -40,10 +41,61 @@ class _Console:
         pass
 
 
+# A worker that aborts (os._exit) on its very first request ever — simulating an
+# onnxruntime abort — then behaves normally. The marker file makes the crash
+# happen exactly once across worker restarts.
+CRASH_WORKER = r"""
+import json, os, sys
+marker = %(marker)r
+print(json.dumps({"ready": True}), flush=True)
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    req = json.loads(line)
+    if not os.path.exists(marker):
+        open(marker, "w").write("x")
+        os._exit(3)
+    with open(req["out"], "w") as f:
+        f.write("audio")
+    print(json.dumps({"path": req["out"]}), flush=True)
+"""
+
+
 def _write_worker(tmp_path):
     script = tmp_path / "fake_worker.py"
     script.write_text(FAKE_WORKER)
     return str(script)
+
+
+def _write_crash_worker(tmp_path):
+    script = tmp_path / "crash_worker.py"
+    marker = tmp_path / "crash_has_happened"
+    script.write_text(CRASH_WORKER % {"marker": str(marker)})
+    return str(script), str(marker)
+
+
+@pytest.mark.parametrize("_", [0])
+def test_generate_audio_recovers_after_worker_crash(tmp_path, _):
+    async def scenario():
+        config.COSYVOICE_WORKER_PYTHON = sys.executable
+        config.COSYVOICE_WORKER_SCRIPT, marker = _write_crash_worker(tmp_path)
+        config.COSYVOICE_WORKER_TIMEOUT = 10.0
+
+        tts = CosyVoiceTTS(_Console())
+        assert await tts.initialize() is True
+
+        # The first synthesis makes the worker abort; generate_audio must
+        # detect the dead worker, restart it, and retry successfully.
+        await tts.generate_audio("hello", str(tmp_path / "out1.wav"))
+        assert (tmp_path / "out1.wav").exists()
+        # The restarted worker is stable for further calls.
+        await tts.generate_audio("world", str(tmp_path / "out2.wav"))
+        assert (tmp_path / "out2.wav").exists()
+
+        await tts.shutdown()
+
+    asyncio.run(scenario())
 
 
 @pytest.mark.parametrize("_", [0])

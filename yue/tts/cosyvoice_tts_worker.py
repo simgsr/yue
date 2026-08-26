@@ -49,6 +49,17 @@ def _load_prompt(prompt_dir, voice):
 
 
 def main():
+    # onnxruntime's Microsoft telemetry logger (Microsoft::Applications::Events)
+    # can deadlock/abort on macOS with a recursive_mutex::lock failure, which
+    # terminates this whole worker mid-read. Disable it before any onnxruntime
+    # session/model is created. Also honor the env var set by the reader.
+    os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
+    try:
+        import onnxruntime as _ort
+        _ort.disable_telemetry_events()
+    except Exception:  # noqa: BLE001
+        pass
+
     repo_dir = os.environ.get("YUE_COSYVOICE_REPO")
     model_dir = os.environ.get("YUE_COSYVOICE_MODEL_DIR")
     prompt_dir = os.environ.get("YUE_COSYVOICE_PROMPT_DIR")
