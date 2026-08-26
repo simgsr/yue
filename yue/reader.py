@@ -91,9 +91,12 @@ class Yue:
         
         # Check if any content was extracted
         if not self.chapters or not any(chapter for chapter in self.chapters):
-            self.console.print(f"[bold red]Error: No text could be extracted from the file.[/bold red]")
-            self.console.print("This might happen with image-based PDFs or unsupported formats.")
-            sys.exit(1)
+            # Don't quit the whole process here: the caller (the start menu flow)
+            # catches this and lets the user pick another book.
+            raise content_parser.ContentExtractionError(
+                "No text could be extracted from the file. This might happen with "
+                "image-based PDFs or unsupported formats."
+            )
             
         if not quiet:
             self.console.print(f"[green]Document loaded successfully![/green]")
@@ -121,13 +124,27 @@ class Yue:
         # Stop audio
         await audio.stop_and_clear_audio(self)
         
+        # Remember the current book so we can fall back if the new one fails.
+        old_path, old_title, old_progress = self.file_path, self.book_title, self.progress_file
+        old_chapters = self.chapters
+        
         # Update file path and title
         self.file_path = new_path
         self.book_title = os.path.splitext(os.path.basename(new_path))[0]
         self.progress_file = progress_manager.get_progress_file_path(self.book_title)
         
         # Load new content quietly
-        self._load_content(quiet=True)
+        try:
+            self._load_content(quiet=True)
+        except content_parser.ContentExtractionError as e:
+            # The new book has no readable text: keep the current book and tell
+            # the user, rather than leaving the reader in a broken state.
+            self.file_path, self.book_title, self.progress_file = old_path, old_title, old_progress
+            self.chapters = old_chapters
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+            self.console.print("Staying on the current book.")
+            asyncio.create_task(ui.display_ui(self))
+            return
         
         # Initialize progress for new book
         self._initialize_progress()

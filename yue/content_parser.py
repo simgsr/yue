@@ -16,6 +16,12 @@ from html import unescape
 from urllib.parse import unquote
 
 
+class ContentExtractionError(Exception):
+    """Raised when a document yields no readable text (e.g. an image-based PDF
+    or an unsupported/empty file). The caller decides whether to quit or to let
+    the user pick another book."""
+
+
 def split_into_sentences(paragraph: str) -> list[str]:
     """
     Splits a paragraph into sentences, intelligently handling common abbreviations and initials.

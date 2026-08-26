@@ -17,7 +17,7 @@ except ImportError:
     from importlib_resources import files
 from rich.console import Console
 from .reader import Yue
-from . import config, progress_manager, input_handler
+from . import config, progress_manager, input_handler, content_parser
 from .tts_manager import TTSManager, get_default_tts_model_name
 from .start_menu import run_start_menu
 
@@ -245,31 +245,6 @@ async def main():
         else:
             console.print("[red]Guide file not found.[/red]")
             sys.exit(1)
-    # Show the interactive start menu when no file is given or --menu is passed
-    if args.menu or not args.file_path:
-        result = await run_start_menu(
-            console,
-            available_tts,
-            start_dir=os.path.dirname(os.path.abspath(args.file_path)) if args.file_path else None,
-            preselect_file=os.path.abspath(args.file_path) if args.file_path else None,
-            default_tts=getattr(args, "tts", config.DEFAULT_TTS_MODEL),
-            default_voice=getattr(args, "voice", None),
-            default_lang=getattr(args, "lang", None),
-            default_speed=getattr(args, "speed", 1.0),
-            guided=via_ui_shortcut,
-        )
-        if result is None:
-            console.print("[green]Goodbye.[/green]")
-            sys.exit(0)
-        args.file_path = result.file_path
-        args.tts = result.tts_name
-        args.voice = result.voice
-        args.lang = result.lang
-        args.speed = result.speed
-    else:
-        # Convert relative path to absolute path for consistency
-        args.file_path = os.path.abspath(args.file_path)
-
     if args.over is not None:
         config.OVERLAP_SECONDS = args.over
 
@@ -332,15 +307,53 @@ async def main():
     
     # Load keyboard shortcuts
     input_handler.load_keyboard_shortcuts(keyboard_shortcuts_file)
-    
-    tts_instance = None
-    if available_tts and hasattr(args, 'tts') and args.tts and args.tts != "none":
-        voice = args.voice if hasattr(args, 'voice') else None
-        lang = args.lang if hasattr(args, 'lang') else None
-        tts_instance = tts_manager.create_model(args.tts, console, voice=voice, lang=lang)
 
-    reader = Yue(args.file_path, tts_model=tts_instance, overlap=args.over,
-                 tts_manager=tts_manager, available_tts=available_tts)
+    # Pick a book (via the start menu, or a file given on the command line) and
+    # load it. If the file has no readable text, show the error and go back to
+    # the menu so the user can choose another book, instead of quitting.
+    while True:
+        # Show the interactive start menu when no file is given or --menu is passed
+        if args.menu or not args.file_path:
+            result = await run_start_menu(
+                console,
+                available_tts,
+                start_dir=os.path.dirname(os.path.abspath(args.file_path)) if args.file_path else None,
+                preselect_file=os.path.abspath(args.file_path) if args.file_path else None,
+                default_tts=getattr(args, "tts", config.DEFAULT_TTS_MODEL),
+                default_voice=getattr(args, "voice", None),
+                default_lang=getattr(args, "lang", None),
+                default_speed=getattr(args, "speed", 1.0),
+                guided=via_ui_shortcut,
+            )
+            if result is None:
+                console.print("[green]Goodbye.[/green]")
+                sys.exit(0)
+            args.file_path = result.file_path
+            args.tts = result.tts_name
+            args.voice = result.voice
+            args.lang = result.lang
+            args.speed = result.speed
+        else:
+            # Convert relative path to absolute path for consistency
+            args.file_path = os.path.abspath(args.file_path)
+
+        tts_instance = None
+        if available_tts and hasattr(args, 'tts') and args.tts and args.tts != "none":
+            voice = args.voice if hasattr(args, 'voice') else None
+            lang = args.lang if hasattr(args, 'lang') else None
+            tts_instance = tts_manager.create_model(args.tts, console, voice=voice, lang=lang)
+
+        try:
+            reader = Yue(args.file_path, tts_model=tts_instance, overlap=args.over,
+                         tts_manager=tts_manager, available_tts=available_tts)
+        except content_parser.ContentExtractionError as e:
+            console.print(f"[bold red]Error: {e}[/bold red]")
+            # Go back to the menu so the user can pick another book.
+            args.menu = True
+            args.file_path = None
+            continue
+        break
+
     if hasattr(args, 'speed'):
         reader.playback_speed = args.speed
 
