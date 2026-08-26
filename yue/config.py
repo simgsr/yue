@@ -11,42 +11,17 @@ DEFAULT_TTS_MODEL = "edge"
 TTS_VOICES = {
     "edge": "en-US-JennyNeural",
     "kokoro": "af_heart",
-    "spark": "female",  # virtual speaker (gender) — spark is bilingual EN/CN
 }
 
 # Language codes for TTS models that require them
 TTS_LANGUAGE_CODES = {
     "kokoro": "a",  # a=English, e=Spanish, j=Japanese, etc.
-    "spark": "en",  # Spark-TTS auto-detects English/Chinese per sentence
 }
 
 # TTS model-specific seconds of overlap between sentences (overrides default OVERLAP_SECONDS if specified)
 TTS_OVERLAP_SECONDS = {
     "kokoro": 0.6,
-    # Spark-TTS reads at a steady pace with natural pauses; a small overlap
-    # keeps sentences flowing without cutting into the natural rhythm.
-    "spark": 0.15,
 }
-
-# Spark-TTS runs as a separate subprocess under its own venv (it pins specific
-# torch/transformers versions that must not touch the reader's venv). It uses a
-# JSON-lines protocol over stdin/stdout (see spark_tts_worker.py).
-SPARK_TTS_REPO = os.environ.get(
-    "YUE_SPARK_TTS_REPO",
-    "/Users/randallsim/Documents/python_project/tts-training/Spark-TTS",
-)
-SPARK_TTS_MODEL_DIR = os.environ.get(
-    "YUE_SPARK_TTS_MODEL_DIR",
-    os.path.join(SPARK_TTS_REPO, "pretrained_models", "Spark-TTS-0.5B"),
-)
-SPARK_TTS_WORKER_PYTHON = os.environ.get(
-    "YUE_SPARK_TTS_WORKER_PYTHON",
-    "/Users/randallsim/Documents/python_project/tts-training/.venv-spark/bin/python",
-)
-SPARK_TTS_WORKER_SCRIPT = os.environ.get(
-    "YUE_SPARK_TTS_WORKER_SCRIPT",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "tts", "spark_tts_worker.py"),
-)
 
 # Audio processing settings
 AUDIO_DATA_DIR = user_cache_dir("yue")
