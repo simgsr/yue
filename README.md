@@ -198,21 +198,15 @@ yue -m 3 path/to/your/book.epub
 | **Key Binding**                         | **Action Description**                                                                         |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `q`                                     | Quit the application and save current reading progress automatically                           |
-| `p`                                     | Pause or resume the text-to-speech audio playback                                              |
-| `a`                                     | Toggle auto-scroll mode to automatically advance during TTS playback                           |
+| `Space`                                 | Pause or resume the text-to-speech audio playback                                              |
+| `Esc`                                   | Re-open the start menu to change book or TTS settings without quitting                          |
 | `t`                                     | Select and highlight the top sentence of the current visible page                              |
-| `h` / `l`                               | Move the reading line to the previous or next paragraph in the document                        |
-| `j` / `k`                               | Move the reading line to the previous or next sentence in the document                         |
-| `z` / `x`                               | Move the reading line to the previous or next chapter in the document                          |
-| `c`                                     | Open the chapter index menu to browse and jump to any chapter                                  |
-| `i` / `m`                               | Jump up or down by full pages for rapid navigation through longer documents                    |
-| `u` / `n`                               | Scroll up or down by smaller increments for fine-grained position control                      |
+| `↑` / `↓`                               | Move the reading line to the previous or next paragraph                                        |
+| `→`                                     | Jump to the next chapter                                                                      |
+| `←`                                     | Move to the beginning of the current chapter (press again for the previous chapter)            |
 | `y` / `b`                               | Jump directly to the beginning or end of the document for quick navigation                     |
-| `r`                                     | Open the recent books menu to quickly switch between 5 last read books                       |
 | `,` / `.`                               | Decrease or increase text-to-speech playback speed (1x to 3x)                                  |
-| `s` / `w`                               | Toggle sentence highlighting or word highlighting on/off                                       |
-| `v`                                     | Cycle through UI complexity modes (Minimal, Medium, Full)                                      |
-| `o`                                     | Re-open the start menu to change book or TTS settings without quitting                         |
+| `c` / `w`                               | Decrease or increase the TTS voice temperature (calmer vs. more expressive)                    |
 
 </div>
 

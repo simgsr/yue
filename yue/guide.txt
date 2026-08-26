@@ -5,12 +5,12 @@ Welcome to Yue, your terminal-based eBook reader with modular text-to-speech sup
 
 Chapter 2: Reading Controls
 
-Now let’s test sentence-level navigation. Press "j" to return to the previous sentence. Press "k" to jump to the next sentence. If you want to jump to the top visible sentence on the screen, press "t" key. Press "h" to go back to the previous paragraph. Press "l" to move to the next paragraph. You can pause and resume the text-to-speech model with "p", Yue remembers exactly where you were.  
+Now let’s test navigation. Use the Down arrow to move to the next paragraph and the Up arrow to go back to the previous paragraph. Press the Right arrow to jump to the next chapter. The Left arrow moves to the beginning of the current chapter the first time you press it, and to the previous chapter on the second press. To jump to the top visible sentence on the screen, press "t". Press the space bar to pause or resume the narration. Yue remembers exactly where you were, even after you quit.  
 
 
 Chapter 3: Page and Scroll Controls
 
-You can scroll through the book without losing the highlighted sentence being read. Do that by pressing "i" to move page up, and "m" to move page down. For smaller adjustments, use "u" to scroll up or "n" to scroll down a row. Navigating with these keys, the mouse wheel, or a trackpad automatically switches Yue to manual mode. In this mode, pressing "a", returns you back to the highlighted sentence and reactivates auto-scroll mode. Auto-scroll works seamlessly with TTS, keeping your reading flow smooth and uninterrupted. "y" takes you to the beginning, and "b" takes you to the end of the book.
+You can scroll through the book without losing the highlighted sentence being read. Use the Up and Down arrows to move by paragraph, or the mouse wheel or a trackpad to scroll continuously. Auto-scroll works seamlessly with TTS, keeping your reading flow smooth and uninterrupted. "y" takes you to the beginning, and "b" takes you to the end of the book.
 
 
 Chapter 4: Mouse Actions
@@ -23,14 +23,14 @@ Chapter 5: Speed Adjustment
 Yue allows you to adjust the text-to-speech playback speed to match your listening preference. You can increase the speed up to 3x faster. To increase the playback speed, press the period key. Each press will increase the speed incrementally. To decrease the playback speed, press the comma key. Each press will decrease the speed back down to the normal 1x speed.
 
 
-Chapter 6: Highlighting Controls
+Chapter 6: Voice Temperature
 
-There are two levels of text highlighting to help you follow along with the narration: sentence-level highlighting and word-level highlighting. To toggle sentence highlighting on or off, press the "s" key. To toggle word highlighting on or off, press the "w" key. You can use both highlighting modes simultaneously, or disable either one based on your preference.
+Yue lets you adjust the text-to-speech voice temperature to control how natural or steady the narration sounds. Press "w" to increase the temperature for a more expressive, varied delivery, and "c" to reduce it for a calmer, more consistent read. The current temperature is shown in the status bar (for example "t0.6").
 
 
 Chapter 7: Ending the Session
 
-When you are ready to stop reading, press "q" to quit. Your place and your reading mode will be saved automatically, so you can resume later without losing your spot.
+When you are ready to stop reading, press "q" to quit. Your place and your reading mode will be saved automatically, so you can resume later without losing your spot. To change book or TTS settings without quitting, press the Esc key to re-open the start menu.
 
 
 Enjoy your reading!

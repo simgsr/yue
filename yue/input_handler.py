@@ -8,35 +8,20 @@ import time
 # Default keyboard shortcuts
 DEFAULT_KEYBOARD_SHORTCUTS = {
     "navigation": {
-        "next_paragraph": "l",
-        "prev_paragraph": "h",
-        "next_sentence": "k",
-        "prev_sentence": "j",
-        "scroll_page_up": "i",
-        "scroll_page_down": "m",
-        "scroll_up": "u",
-        "scroll_down": "n",
         "move_to_top_visible": "t",
-        "next_chapter": "x",
-        "prev_chapter": "z",
         "move_to_beginning": "y",
         "move_to_end": "b"
     },
     "tts_controls": {
-        "play_pause": ["p", " "],
+        "play_pause": " ",
         "decrease_speed": ",",
         "increase_speed": ".",
-        "toggle_sentence_highlight": "s",
-        "toggle_word_highlight": "w"
+        "decrease_temperature": "c",
+        "increase_temperature": "w"
     },
-    "display_controls": {
-        "toggle_auto_scroll": "a",
-        "cycle_ui_complexity": "v",
-        "toggle_chapter_index": "c"
-    },
+    "display_controls": {},
     "application": {
         "quit": "q",
-        "toggle_recent_menu": "r",
         "select_menu_item": "\n"
     }
 }
@@ -77,13 +62,25 @@ def _process_escape_sequence(reader, seq):
     cmd = None
 
     if last_char == 'A':
+        reader.left_arrow_chapter_start = False
         cmd = 'scroll_up' if (reader.show_recent_menu or reader.show_chapter_index) else 'prev_paragraph'
     elif last_char == 'B':
+        reader.left_arrow_chapter_start = False
         cmd = 'scroll_down' if (reader.show_recent_menu or reader.show_chapter_index) else 'next_paragraph'
-    elif last_char == 'C' and not (reader.show_recent_menu or reader.show_chapter_index):
-        cmd = 'next_sentence'
-    elif last_char == 'D' and not (reader.show_recent_menu or reader.show_chapter_index):
-        cmd = 'prev_sentence'
+    elif last_char == 'C':
+        reader.left_arrow_chapter_start = False
+        if not (reader.show_recent_menu or reader.show_chapter_index):
+            cmd = 'next_chapter'
+    elif last_char == 'D':
+        if not (reader.show_recent_menu or reader.show_chapter_index):
+            # First press jumps to the start of the current chapter; a second
+            # press moves back to the previous chapter.
+            if reader.left_arrow_chapter_start:
+                reader.left_arrow_chapter_start = False
+                cmd = 'prev_chapter'
+            else:
+                reader.left_arrow_chapter_start = True
+                cmd = 'move_to_chapter_start'
     elif seq == '\x1b[5~':
         cmd = 'scroll_page_up'
     elif seq == '\x1b[6~':
@@ -103,6 +100,8 @@ def _process_mouse_sequence(reader, sequence):
     """Process a mouse escape sequence."""
     if not sequence or len(sequence) <= 3:
         return
+
+    reader.left_arrow_chapter_start = False
 
     mouse_part = sequence[3:]
     if mouse_part.endswith('M') or mouse_part.endswith('m'):
@@ -151,7 +150,6 @@ def _process_normal_key(reader, data):
     """Process a standard non-escape key press."""
     nav_shortcuts = KEYBOARD_SHORTCUTS.get("navigation", {})
     tts_shortcuts = KEYBOARD_SHORTCUTS.get("tts_controls", {})
-    display_shortcuts = KEYBOARD_SHORTCUTS.get("display_controls", {})
     app_shortcuts = KEYBOARD_SHORTCUTS.get("application", {})
 
     if _matches_shortcut(data, app_shortcuts.get("quit", "q")):
@@ -159,37 +157,14 @@ def _process_normal_key(reader, data):
         reader.command_received_event.set()
         return
 
+    # Any non-arrow key cancels the left-arrow's two-stage chapter behaviour.
+    reader.left_arrow_chapter_start = False
+
     cmd = None
-    if _matches_shortcut(data, app_shortcuts.get("toggle_recent_menu", "r")):
-        cmd = 'toggle_recent_menu'
-    elif _matches_shortcut(data, app_shortcuts.get("open_start_menu", "o")):
-        cmd = 'open_start_menu'
-    elif _matches_shortcut(data, app_shortcuts.get("select_menu_item", "\n")) or data == '\r':
+    if _matches_shortcut(data, app_shortcuts.get("select_menu_item", "\n")) or data == '\r':
         cmd = 'select_menu_item'
-    elif _matches_shortcut(data, tts_shortcuts.get("play_pause", "p")):
+    elif _matches_shortcut(data, tts_shortcuts.get("play_pause", " ")):
         cmd = 'pause'
-    elif _matches_shortcut(data, nav_shortcuts.get("prev_paragraph", "h")):
-        cmd = 'prev_paragraph'
-    elif _matches_shortcut(data, nav_shortcuts.get("prev_sentence", "j")):
-        cmd = 'prev_sentence'
-    elif _matches_shortcut(data, nav_shortcuts.get("next_sentence", "k")):
-        cmd = 'next_sentence'
-    elif _matches_shortcut(data, nav_shortcuts.get("next_paragraph", "l")):
-        cmd = 'next_paragraph'
-    elif _matches_shortcut(data, nav_shortcuts.get("next_chapter", "x")):
-        cmd = 'next_chapter'
-    elif _matches_shortcut(data, nav_shortcuts.get("prev_chapter", "z")):
-        cmd = 'prev_chapter'
-    elif _matches_shortcut(data, nav_shortcuts.get("scroll_page_up", "i")):
-        cmd = 'scroll_page_up'
-    elif _matches_shortcut(data, nav_shortcuts.get("scroll_page_down", "m")):
-        cmd = 'scroll_page_down'
-    elif _matches_shortcut(data, nav_shortcuts.get("scroll_up", "u")):
-        cmd = 'scroll_up'
-    elif _matches_shortcut(data, nav_shortcuts.get("scroll_down", "n")):
-        cmd = 'scroll_down'
-    elif _matches_shortcut(data, display_shortcuts.get("toggle_auto_scroll", "a")):
-        cmd = 'toggle_auto_scroll'
     elif _matches_shortcut(data, nav_shortcuts.get("move_to_top_visible", "t")):
         cmd = 'move_to_top_visible'
     elif _matches_shortcut(data, nav_shortcuts.get("move_to_beginning", "y")):
@@ -200,14 +175,10 @@ def _process_normal_key(reader, data):
         cmd = 'decrease_speed'
     elif _matches_shortcut(data, tts_shortcuts.get("increase_speed", ".")):
         cmd = 'increase_speed'
-    elif _matches_shortcut(data, tts_shortcuts.get("toggle_sentence_highlight", "s")):
-        cmd = 'toggle_sentence_highlight'
-    elif _matches_shortcut(data, tts_shortcuts.get("toggle_word_highlight", "w")):
-        cmd = 'toggle_word_highlight'
-    elif _matches_shortcut(data, display_shortcuts.get("cycle_ui_complexity", "v")):
-        cmd = 'cycle_ui_complexity'
-    elif _matches_shortcut(data, display_shortcuts.get("toggle_chapter_index", "c")):
-        cmd = 'toggle_chapter_index'
+    elif _matches_shortcut(data, tts_shortcuts.get("decrease_temperature", "c")):
+        cmd = 'decrease_temperature'
+    elif _matches_shortcut(data, tts_shortcuts.get("increase_temperature", "w")):
+        cmd = 'increase_temperature'
 
     if cmd:
         reader.post_command(cmd)
@@ -247,6 +218,15 @@ def process_input(reader):
                 continue
 
             if len(buf) == 1:
+                # A lone ESC could be the ESC key or the start of an arrow /
+                # mouse sequence arriving in later reads. Give it a short grace
+                # period, then treat it as ESC if nothing followed.
+                loop = getattr(reader, 'loop', None)
+                if loop is not None:
+                    try:
+                        loop.call_later(0.04, _process_lone_escape, reader)
+                    except Exception:
+                        pass
                 break
 
             second_char = buf[1]
@@ -291,6 +271,20 @@ def process_input(reader):
                 reader.mouse_sequence_buffer = ""
                 reader.esc_start_time = None
             break
+    except Exception:
+        pass
+
+
+def _process_lone_escape(reader):
+    """Resolve a standalone ESC key (no arrow/mouse sequence followed)."""
+    try:
+        if reader.mouse_sequence_buffer == '\x1b':
+            reader.mouse_sequence_buffer = ""
+            reader.esc_start_time = None
+            reader.left_arrow_chapter_start = False
+            # ESC re-opens the start menu (book/TTS picker). Any open overlay
+            # is closed by that command.
+            reader.post_command('open_start_menu')
     except Exception:
         pass
 

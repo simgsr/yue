@@ -61,9 +61,9 @@ class UIColors:
     AUTO_SCROLL_DISABLED = "blue"
     
     # Control and navigation colors
-    CONTROL_KEYS = "white"          # h, j, k, l, etc.
+    CONTROL_KEYS = "white"          # Arrow/control keys in the status bar
     CONTROL_ICONS = "green"   # The actual navigation icons
-    ARROW_ICONS = "blue"  # Color for u/n and i/m icons
+    ARROW_ICONS = "blue"  # Color for the up/down and left/right arrow icons
     QUIT_ICON = "red"        # Color for the q icon
     SEPARATORS = "bright_blue"      # Lines and separators
     
@@ -491,255 +491,76 @@ def _compute_subtitle_hitboxes(segments, width):
 
 
 def get_compact_subtitle(reader, width):
-    """Generate a compact subtitle based on terminal width."""
+    """Generate a compact subtitle (status bar) based on terminal width.
+
+    Navigation is driven by the arrow keys and TTS by the c/w temperature keys
+    plus the ,/. speed keys, so only those (and quit) are shown here.
+    """
     status_icon = ICONS.PLAYING if not reader.is_paused else ICONS.PAUSED
     status_text = "PLAYING" if not reader.is_paused else "PAUSED"
-    
-    # Add speed indicator if not normal speed
+
     speed_indicator = reader._get_speed_display() if hasattr(reader, '_get_speed_display') else ""
-    
-    # Get keyboard shortcuts
+    temp_display = reader._get_temperature_display() if hasattr(reader, '_get_temperature_display') else ""
+
     keyboard_shortcuts = get_keyboard_shortcuts()
-    nav_shortcuts = keyboard_shortcuts.get("navigation", {})
     tts_shortcuts = keyboard_shortcuts.get("tts_controls", {})
-    display_shortcuts = keyboard_shortcuts.get("display_controls", {})
     app_shortcuts = keyboard_shortcuts.get("application", {})
-    
-    # Control text with centralized colors using loaded shortcuts
-    # Apply formatting to make control characters readable
-    prev_para_key = format_key_for_display(nav_shortcuts.get("prev_paragraph", "h"))
-    next_para_key = format_key_for_display(nav_shortcuts.get("next_paragraph", "l"))
-    prev_sent_key = format_key_for_display(nav_shortcuts.get("prev_sentence", "j"))
-    next_sent_key = format_key_for_display(nav_shortcuts.get("next_sentence", "k"))
-    scroll_up_key = format_key_for_display(nav_shortcuts.get("scroll_up", "u"))
-    scroll_down_key = format_key_for_display(nav_shortcuts.get("scroll_down", "n"))
-    page_up_key = format_key_for_display(nav_shortcuts.get("scroll_page_up", "i"))
-    page_down_key = format_key_for_display(nav_shortcuts.get("scroll_page_down", "m"))
+
+    up_key = "↑"
+    down_key = "↓"
+    left_key = "←"
+    right_key = "→"
+    temp_down_key = format_key_for_display(tts_shortcuts.get("decrease_temperature", "c"))
+    temp_up_key = format_key_for_display(tts_shortcuts.get("increase_temperature", "w"))
     quit_key = format_key_for_display(app_shortcuts.get("quit", "q"))
-    auto_scroll_key = format_key_for_display(display_shortcuts.get("toggle_auto_scroll", "a"))
-    top_visible_key = format_key_for_display(nav_shortcuts.get("move_to_top_visible", "t"))
-    
-    nav_text_1 = f"[{COLORS.CONTROL_KEYS}]{prev_para_key}{ICONS.SEPARATOR}{prev_sent_key}[/{COLORS.CONTROL_KEYS}]"
-    nav_text_2 = f"[{COLORS.CONTROL_KEYS}]{next_sent_key}{ICONS.SEPARATOR}{next_para_key}[/{COLORS.CONTROL_KEYS}]"
-    page_text = f"[{COLORS.CONTROL_KEYS}]{scroll_up_key}{ICONS.SEPARATOR}{scroll_down_key}[/{COLORS.CONTROL_KEYS}]"
-    scroll_text = f"[{COLORS.CONTROL_KEYS}]{page_up_key}{ICONS.SEPARATOR}{page_down_key}[/{COLORS.CONTROL_KEYS}]"
-    quit_text = f"[{COLORS.CONTROL_KEYS}]{quit_key}[/{COLORS.CONTROL_KEYS}]"
-    auto_text = f"[{COLORS.CONTROL_KEYS}]{auto_scroll_key}{ICONS.SEPARATOR}{top_visible_key}[/{COLORS.CONTROL_KEYS}]"
-    # Removed ui_mode_text from here as we don't want to show it visually
-    
-    if reader.auto_scroll_enabled:
-        auto_scroll_icon = ICONS.AUTO_SCROLL
-        auto_scroll_text = "AUTO"
-    else:
-        auto_scroll_icon = ICONS.MANUAL_MODE
-        auto_scroll_text = "MANUAL"
-    
+    sep = ICONS.SEPARATOR
+
     if width >= 80:
-        base_sep = ICONS.LINE_SEPARATOR_LONG
-        
-        # Construct status part with proper spacing
-        pause_key = format_key_for_display(tts_shortcuts.get("play_pause", "p"))
-        if speed_indicator:
-            status_part = f"[{COLORS.CONTROL_KEYS}]{pause_key}[/{COLORS.CONTROL_KEYS}] {status_icon} {speed_indicator} {status_text}"
-        else:
-            status_part = f"[{COLORS.CONTROL_KEYS}]{pause_key}[/{COLORS.CONTROL_KEYS}] {status_icon} {status_text}"
-            
-        status_extra = 1 if status_text == "PAUSED" else 0
-        status_sep = base_sep + (ICONS.LINE_SEPARATOR_SHORT * status_extra)
-        
-        auto_part = f"{auto_scroll_icon} {auto_scroll_text}"
-        auto_extra = 2 if auto_scroll_text == "AUTO" else 0
-        auto_sep = base_sep + (ICONS.LINE_SEPARATOR_SHORT * auto_extra)
-        
-        # Get UI mode display
-        ui_mode_names = ["MIN", "MED", "FULL", "SR"]
-        ui_mode_display = ui_mode_names[config.UI_MODE]
-        
-        # Modified controls_text to remove ui_mode_text visual display but keep functionality
-        controls_text = f"{nav_text_1} [{COLORS.CONTROL_ICONS}]{ICONS.HIGHLIGHT_UP}[/{COLORS.CONTROL_ICONS}] {nav_text_2} [{COLORS.CONTROL_ICONS}]{ICONS.HIGHLIGHT_DOWN}[/{COLORS.CONTROL_ICONS}] [{COLORS.SEPARATORS}]{base_sep}[/{COLORS.SEPARATORS}] {page_text} [{COLORS.ARROW_ICONS}]{ICONS.ROW_NAVIGATION}[/{COLORS.ARROW_ICONS}] {scroll_text} [{COLORS.ARROW_ICONS}]{ICONS.PAGE_NAVIGATION}[/{COLORS.ARROW_ICONS}] [{COLORS.SEPARATORS}]{base_sep}[/{COLORS.SEPARATORS}] {quit_text} [{COLORS.QUIT_ICON}]{ICONS.QUIT}[/{COLORS.QUIT_ICON}]"
-        
-        playing_color = COLORS.PLAYING_STATUS if not reader.is_paused else COLORS.PAUSED_STATUS
-        auto_color = COLORS.AUTO_SCROLL_ENABLED if reader.auto_scroll_enabled else COLORS.AUTO_SCROLL_DISABLED
-        
-        rich_result = (
-            f"[{playing_color}]{status_part}[/{playing_color}] "
-            f"[{COLORS.SEPARATORS}]{status_sep}[/{COLORS.SEPARATORS}] "
-            f"{auto_text} "
-            f"[{auto_color}]{auto_part}[/{auto_color}] "
-            f"[{COLORS.SEPARATORS}]{auto_sep}[/{COLORS.SEPARATORS}] "
-            f"{controls_text}"
-        )
-
-        p_status = _strip_rich_markup(status_part)
-        p_status_sep = f" {status_sep} "
-        p_auto_part = auto_part + " "
-        p_auto_sep = f"{auto_sep} "
-
-        segments = [
-            ('pause',                p_status),
-            (None,                   p_status_sep),
-            ('toggle_auto_scroll',   auto_scroll_key),
-            (None,                   ICONS.SEPARATOR),
-            ('move_to_top_visible',  top_visible_key + " "),
-            ('toggle_auto_scroll',   p_auto_part),
-            (None,                   p_auto_sep),
-            ('prev_paragraph',       f"{prev_para_key}{ICONS.SEPARATOR}"),
-            ('prev_sentence',        f"{prev_sent_key}"),
-            (None,                   f" {ICONS.HIGHLIGHT_UP} "),
-            ('next_sentence',        f"{next_sent_key}{ICONS.SEPARATOR}"),
-            ('next_paragraph',       f"{next_para_key}"),
-            (None,                   f" {ICONS.HIGHLIGHT_DOWN} {base_sep} "),
-            ('scroll_up',            f"{scroll_up_key}{ICONS.SEPARATOR}"),
-            ('scroll_down',          f"{scroll_down_key}"),
-            (None,                   f" {ICONS.ROW_NAVIGATION} "),
-            ('scroll_page_up',       f"{page_up_key}{ICONS.SEPARATOR}"),
-            ('scroll_page_down',     f"{page_down_key}"),
-            (None,                   f" {ICONS.PAGE_NAVIGATION} {base_sep} "),
-            ('quit',                 f"{quit_key} {ICONS.QUIT}"),
-        ]
-        reader.subtitle_hitboxes = _compute_subtitle_hitboxes(segments, width)
-        return rich_result
+        line_sep = ICONS.LINE_SEPARATOR_LONG
     elif width >= 70:
-        separator = ICONS.LINE_SEPARATOR_LONG
-        
-        # Construct status part with proper spacing
-        pause_key = format_key_for_display(tts_shortcuts.get("play_pause", "p"))
-        if speed_indicator:
-            icon_status = f"[{COLORS.CONTROL_KEYS}]{pause_key}[/{COLORS.CONTROL_KEYS}] {status_icon}{speed_indicator}"
-        else:
-            icon_status = f"[{COLORS.CONTROL_KEYS}]{pause_key}[/{COLORS.CONTROL_KEYS}] {status_icon}"
-            
-        icon_auto = f"{auto_scroll_icon}"
-        
-        # Get UI mode display
-        ui_mode_names = ["MIN", "MED", "FULL", "SR"]
-        ui_mode_display = ui_mode_names[config.UI_MODE]
-        
-        # Modified controls_text to remove ui_mode_text visual display but keep functionality
-        controls_text = f"[{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {nav_text_1} [{COLORS.CONTROL_ICONS}]{ICONS.HIGHLIGHT_UP}[/{COLORS.CONTROL_ICONS}] {nav_text_2} [{COLORS.CONTROL_ICONS}]{ICONS.HIGHLIGHT_DOWN}[/{COLORS.CONTROL_ICONS}] [{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {page_text} [{COLORS.ARROW_ICONS}]{ICONS.ROW_NAVIGATION}[/{COLORS.ARROW_ICONS}] {scroll_text} [{COLORS.ARROW_ICONS}]{ICONS.PAGE_NAVIGATION}[/{COLORS.ARROW_ICONS}] [{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {quit_text} [{COLORS.QUIT_ICON}]{ICONS.QUIT}[/{COLORS.QUIT_ICON}]"
-        
-        playing_color = COLORS.PLAYING_STATUS if not reader.is_paused else COLORS.PAUSED_STATUS
-        auto_color = COLORS.AUTO_SCROLL_ENABLED if reader.auto_scroll_enabled else COLORS.AUTO_SCROLL_DISABLED
-        
-        rich_result = f"[{playing_color}]{icon_status}[/{playing_color}] [{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {auto_text} [{auto_color}]{icon_auto}[/{auto_color}] {controls_text}"
-        segments = [
-            ('pause',                _strip_rich_markup(icon_status)),
-            (None,                   f" {separator} "),
-            ('toggle_auto_scroll',   auto_scroll_key),
-            (None,                   ICONS.SEPARATOR),
-            ('move_to_top_visible',  top_visible_key + " "),
-            ('toggle_auto_scroll',   icon_auto),
-            (None,                   f" {separator} "),
-            ('prev_paragraph',       f"{prev_para_key}{ICONS.SEPARATOR}"),
-            ('prev_sentence',        f"{prev_sent_key}"),
-            (None,                   f" {ICONS.HIGHLIGHT_UP} "),
-            ('next_sentence',        f"{next_sent_key}{ICONS.SEPARATOR}"),
-            ('next_paragraph',       f"{next_para_key}"),
-            (None,                   f" {ICONS.HIGHLIGHT_DOWN} {separator} "),
-            ('scroll_up',            f"{scroll_up_key}{ICONS.SEPARATOR}"),
-            ('scroll_down',          f"{scroll_down_key}"),
-            (None,                   f" {ICONS.ROW_NAVIGATION} "),
-            ('scroll_page_up',       f"{page_up_key}{ICONS.SEPARATOR}"),
-            ('scroll_page_down',     f"{page_down_key}"),
-            (None,                   f" {ICONS.PAGE_NAVIGATION} {separator} "),
-            ('quit',                 f"{quit_key} {ICONS.QUIT}"),
-        ]
-        reader.subtitle_hitboxes = _compute_subtitle_hitboxes(segments, width)
-        return rich_result
-    elif width >= 65:
-        separator = ICONS.LINE_SEPARATOR_MEDIUM
-        
-        # Construct status part with proper spacing
-        pause_key = format_key_for_display(tts_shortcuts.get("play_pause", "p"))
-        if speed_indicator:
-            icon_status = f"[{COLORS.CONTROL_KEYS}]{pause_key}[/{COLORS.CONTROL_KEYS}] {status_icon}{speed_indicator}"
-        else:
-            icon_status = f"[{COLORS.CONTROL_KEYS}]{pause_key}[/{COLORS.CONTROL_KEYS}] {status_icon}"
-            
-        icon_auto = f"{auto_scroll_icon}"
-        
-        # Get UI mode display
-        ui_mode_names = ["MIN", "MED", "FULL", "SR"]
-        ui_mode_display = ui_mode_names[config.UI_MODE]
-        
-        # Modified controls_text to remove ui_mode_text visual display but keep functionality
-        controls_text = f"[{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {nav_text_1} [{COLORS.CONTROL_ICONS}]{ICONS.HIGHLIGHT_UP}[/{COLORS.CONTROL_ICONS}] {nav_text_2} [{COLORS.CONTROL_ICONS}]{ICONS.HIGHLIGHT_DOWN}[/{COLORS.CONTROL_ICONS}] [{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {page_text} [{COLORS.ARROW_ICONS}]{ICONS.ROW_NAVIGATION}[/{COLORS.ARROW_ICONS}] {scroll_text} [{COLORS.ARROW_ICONS}]{ICONS.PAGE_NAVIGATION}[/{COLORS.ARROW_ICONS}] [{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {quit_text} [{COLORS.QUIT_ICON}]{ICONS.QUIT}[/{COLORS.QUIT_ICON}]"
-        
-        playing_color = COLORS.PLAYING_STATUS if not reader.is_paused else COLORS.PAUSED_STATUS
-        auto_color = COLORS.AUTO_SCROLL_ENABLED if reader.auto_scroll_enabled else COLORS.AUTO_SCROLL_DISABLED
-        
-        rich_result = f"[{playing_color}]{icon_status}[/{playing_color}] [{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {auto_text} [{auto_color}]{icon_auto}[/{auto_color}] {controls_text}"
-        segments = [
-            ('pause',                _strip_rich_markup(icon_status)),
-            (None,                   f" {separator} "),
-            ('toggle_auto_scroll',   auto_scroll_key),
-            (None,                   ICONS.SEPARATOR),
-            ('move_to_top_visible',  top_visible_key + " "),
-            ('toggle_auto_scroll',   icon_auto),
-            (None,                   f" {separator} "),
-            ('prev_paragraph',       f"{prev_para_key}{ICONS.SEPARATOR}"),
-            ('prev_sentence',        f"{prev_sent_key}"),
-            (None,                   f" {ICONS.HIGHLIGHT_UP} "),
-            ('next_sentence',        f"{next_sent_key}{ICONS.SEPARATOR}"),
-            ('next_paragraph',       f"{next_para_key}"),
-            (None,                   f" {ICONS.HIGHLIGHT_DOWN} {separator} "),
-            ('scroll_up',            f"{scroll_up_key}{ICONS.SEPARATOR}"),
-            ('scroll_down',          f"{scroll_down_key}"),
-            (None,                   f" {ICONS.ROW_NAVIGATION} "),
-            ('scroll_page_up',       f"{page_up_key}{ICONS.SEPARATOR}"),
-            ('scroll_page_down',     f"{page_down_key}"),
-            (None,                   f" {ICONS.PAGE_NAVIGATION} {separator} "),
-            ('quit',                 f"{quit_key} {ICONS.QUIT}"),
-        ]
-        reader.subtitle_hitboxes = _compute_subtitle_hitboxes(segments, width)
-        return rich_result
+        line_sep = ICONS.LINE_SEPARATOR_MEDIUM
     else:
-        separator = ICONS.LINE_SEPARATOR_SHORT
-        
-        # Construct status part with proper spacing
-        pause_key = format_key_for_display(tts_shortcuts.get("play_pause", "p"))
-        if speed_indicator:
-            icon_status = f"[{COLORS.CONTROL_KEYS}]{pause_key}[/{COLORS.CONTROL_KEYS}] {status_icon}{speed_indicator}"
-        else:
-            icon_status = f"[{COLORS.CONTROL_KEYS}]{pause_key}[/{COLORS.CONTROL_KEYS}] {status_icon}"
-            
-        icon_auto = f"{auto_scroll_icon}"
-        
-        # Get UI mode display
-        ui_mode_names = ["MIN", "MED", "FULL", "SR"]
-        ui_mode_display = ui_mode_names[config.UI_MODE]
-        
-        # Modified controls_text to remove ui_mode_text visual display but keep functionality
-        controls_text = f"[{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {nav_text_1} [{COLORS.CONTROL_ICONS}]{ICONS.HIGHLIGHT_UP}[/{COLORS.CONTROL_ICONS}] {nav_text_2} [{COLORS.CONTROL_ICONS}]{ICONS.HIGHLIGHT_DOWN}[/{COLORS.CONTROL_ICONS}] [{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {page_text} [{COLORS.ARROW_ICONS}]{ICONS.ROW_NAVIGATION}[/{COLORS.ARROW_ICONS}] {scroll_text} [{COLORS.ARROW_ICONS}]{ICONS.PAGE_NAVIGATION}[/{COLORS.ARROW_ICONS}] [{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {quit_text} [{COLORS.QUIT_ICON}]{ICONS.QUIT}[/{COLORS.QUIT_ICON}]"
-        
-        playing_color = COLORS.PLAYING_STATUS if not reader.is_paused else COLORS.PAUSED_STATUS
-        auto_color = COLORS.AUTO_SCROLL_ENABLED if reader.auto_scroll_enabled else COLORS.AUTO_SCROLL_DISABLED
-        
-        rich_result = f"[{playing_color}]{icon_status}[/{playing_color}] [{COLORS.SEPARATORS}]{separator}[/{COLORS.SEPARATORS}] {auto_text} [{auto_color}]{icon_auto}[/{auto_color}] {controls_text}"
-        segments = [
-            ('pause',                _strip_rich_markup(icon_status)),
-            (None,                   f" {separator} "),
-            ('toggle_auto_scroll',   auto_scroll_key),
-            (None,                   ICONS.SEPARATOR),
-            ('move_to_top_visible',  top_visible_key + " "),
-            ('toggle_auto_scroll',   icon_auto),
-            (None,                   f" {separator} "),
-            ('prev_paragraph',       f"{prev_para_key}{ICONS.SEPARATOR}"),
-            ('prev_sentence',        f"{prev_sent_key}"),
-            (None,                   f" {ICONS.HIGHLIGHT_UP} "),
-            ('next_sentence',        f"{next_sent_key}{ICONS.SEPARATOR}"),
-            ('next_paragraph',       f"{next_para_key}"),
-            (None,                   f" {ICONS.HIGHLIGHT_DOWN} {separator} "),
-            ('scroll_up',            f"{scroll_up_key}{ICONS.SEPARATOR}"),
-            ('scroll_down',          f"{scroll_down_key}"),
-            (None,                   f" {ICONS.ROW_NAVIGATION} "),
-            ('scroll_page_up',       f"{page_up_key}{ICONS.SEPARATOR}"),
-            ('scroll_page_down',     f"{page_down_key}"),
-            (None,                   f" {ICONS.PAGE_NAVIGATION} {separator} "),
-            ('quit',                 f"{quit_key} {ICONS.QUIT}"),
-        ]
-        reader.subtitle_hitboxes = _compute_subtitle_hitboxes(segments, width)
-        return rich_result
+        line_sep = ICONS.LINE_SEPARATOR_SHORT
+
+    # Status portion (not clickable)
+    status_plain = f"{status_icon} {status_text}"
+    if speed_indicator:
+        status_plain += f" {speed_indicator}"
+    if temp_display:
+        status_plain += f" {temp_display}"
+    status_color = COLORS.PLAYING_STATUS if not reader.is_paused else COLORS.PAUSED_STATUS
+
+    rich_result = (
+        f"[{status_color}]{status_plain}[/{status_color}] "
+        f"[{COLORS.SEPARATORS}]{line_sep}[/{COLORS.SEPARATORS}] "
+        f"[{COLORS.CONTROL_KEYS}]{left_key}{sep}{right_key}[/{COLORS.CONTROL_KEYS}] "
+        f"[{COLORS.ARROW_ICONS}]{up_key}{sep}{down_key}[/{COLORS.ARROW_ICONS}] "
+        f"[{COLORS.SEPARATORS}]{line_sep}[/{COLORS.SEPARATORS}] "
+        f"[{COLORS.CONTROL_KEYS}]{temp_down_key}{sep}{temp_up_key}[/{COLORS.CONTROL_KEYS}] "
+        f"[{COLORS.SEPARATORS}]{line_sep}[/{COLORS.SEPARATORS}] "
+        f"[{COLORS.CONTROL_KEYS}]{quit_key}[/{COLORS.CONTROL_KEYS}] {ICONS.QUIT}"
+    )
+
+    segments = [
+        (None, f"{status_plain} "),
+        (None, f"{line_sep} "),
+        ('move_to_chapter_start', left_key),
+        (None, sep),
+        ('next_chapter', right_key),
+        (None, " "),
+        ('prev_paragraph', up_key),
+        (None, sep),
+        ('next_paragraph', down_key),
+        (None, f" {line_sep} "),
+        ('decrease_temperature', temp_down_key),
+        (None, sep),
+        ('increase_temperature', temp_up_key),
+        (None, f" {line_sep} "),
+        ('quit', quit_key),
+        (None, f" {ICONS.QUIT}"),
+    ]
+    reader.subtitle_hitboxes = _compute_subtitle_hitboxes(segments, width)
+    return rich_result
 
 def render_recent_books_overlay(reader, width, height):
     """Render the recent books overlay."""
