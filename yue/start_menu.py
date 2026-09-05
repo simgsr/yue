@@ -1161,7 +1161,7 @@ def _adjust_field(state: MenuState, delta: int) -> None:
     if state.field_cursor == fields.index("model"):
         _cycle_model(state, delta)
     elif "speed" in fields and state.field_cursor == fields.index("speed"):
-        state.speed = round(min(2.0, max(0.5, state.speed + 0.1 * delta)), 1)
+        state.speed = round(min(3.0, max(0.5, state.speed + 0.1 * delta)), 1)
 
 
 def _open_lang_picker(state: MenuState) -> None:
@@ -1383,7 +1383,7 @@ def handle_key(state: MenuState, key) -> str:
         if state.field_cursor == model_idx:
             _cycle_model(state, 1)
         elif speed_idx is not None and state.field_cursor == speed_idx:
-            state.speed = min(2.0, round(state.speed + 0.1, 1))
+            state.speed = min(3.0, round(state.speed + 0.1, 1))
         else:
             state.pane_focus = "files"
     elif char in ("-", ","):
@@ -2139,7 +2139,7 @@ async def run_start_menu(
     if default_tts in models:
         state.model_idx = models.index(default_tts)
     if default_speed:
-        state.speed = max(0.5, min(2.0, float(default_speed)))
+        state.speed = max(0.5, min(3.0, float(default_speed)))
     # Apply the saved language selection (a list; legacy single strings are
     # normalised by _parse_lang_value). Each model keeps only its own codes.
     if "kokoro" in models:
