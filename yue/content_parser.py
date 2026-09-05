@@ -386,39 +386,6 @@ class HTMLtoLines(HTMLParser):
                 result.append(line)
         
         return result
-    
-    def _is_footnote_reference(self, content):
-        """
-        Detect if content looks like a footnote reference based on patterns.
-        This is more general than hardcoding specific class names.
-        """
-        if not content or len(content.strip()) == 0:
-            return False
-            
-        content = content.strip()
-        
-        # Very short content that's just numbers, letters, or footnote symbols
-        if len(content) <= 3:
-            # Pure numbers (verse numbers, sentence numbers, footnote numbers)
-            if re.match(r'^\d+$', content):
-                return True
-            # Footnote symbols
-            if re.match(r'^[*†‡§¶]+$', content):
-                return True
-            # Single letters (footnote markers)
-            if re.match(r'^[a-zA-Z]$', content):
-                return True
-        
-        # Slightly longer but still footnote-like patterns
-        if len(content) <= 5:
-            # Numbers with punctuation
-            if re.match(r'^\d+[.,;:]?$', content):
-                return True
-            # Roman numerals
-            if re.match(r'^[ivxlcdm]+$', content.lower()):
-                return True
-        
-        return False
 
     def _clean_line(self, line):
         """Clean footnote markers and image references from a line"""

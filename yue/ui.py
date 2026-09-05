@@ -77,7 +77,6 @@ class UIColors:
     WORD_HIGHLIGHT = "bold yellow"  # Current word highlight
     WORD_HIGHLIGHT_STANDOUT = "black on bright_yellow"  # Standout mode word highlight
     SPEED_READING_TEXT = "bold white"  # Centered speed reading word
-    SELECTION_HIGHLIGHT = "reverse" # Text selection highlight
     
     # Progress bar colors
     PROGRESS_BAR = "bold blue"  # Used for the progress text in title
@@ -104,8 +103,7 @@ class UIColors:
         cls.WORD_HIGHLIGHT = "white"
         cls.WORD_HIGHLIGHT_STANDOUT = "black on white"
         cls.SPEED_READING_TEXT = "bold white"
-        cls.SELECTION_HIGHLIGHT = "on grey50"
-    
+
     @classmethod
     def apply_white_theme(cls):
         """Apply a light theme color scheme with grayscale only."""
@@ -127,8 +125,7 @@ class UIColors:
         cls.WORD_HIGHLIGHT = "black"
         cls.WORD_HIGHLIGHT_STANDOUT = "white on black"
         cls.SPEED_READING_TEXT = "bold black"
-        cls.SELECTION_HIGHLIGHT = "on grey50"
-    
+
 # Create global instances for easy access
 ICONS = UIIcons()
 COLORS = UIColors()
@@ -388,8 +385,6 @@ def get_visible_content(reader):
                 if 0 <= line_offset < len(highlighted_paragraph_lines):
                     line = highlighted_paragraph_lines[line_offset]
 
-            line = _apply_selection_highlighting(reader, line, i)
-
             visible_lines.append(line)
         else:
             visible_lines.append(Text("", style=COLORS.TEXT_NORMAL))
@@ -398,82 +393,6 @@ def get_visible_content(reader):
         visible_lines = visible_lines[:available_height]
 
     return visible_lines
-
-def _apply_selection_highlighting(reader, line, line_index):
-    """Apply selection highlighting to a line if it's within the selection range."""
-    if not reader.selection_active or not reader.selection_start or not reader.selection_end:
-        return line
-    
-    start_line, start_char = reader.selection_start
-    end_line, end_char = reader.selection_end
-    
-    # Ensure start comes before end
-    if start_line > end_line or (start_line == end_line and start_char > end_char):
-        start_line, start_char, end_line, end_char = end_line, end_char, start_line, start_char
-    
-    # Check if this line is within the selection range
-    if not (start_line <= line_index <= end_line):
-        return line
-    
-    line_text = line.plain
-    if not line_text:
-        return line
-    
-    # Create a new Text object with selection highlighting
-    new_line = Text(justify="left", no_wrap=False)
-    
-    if start_line == end_line == line_index:
-        # Single line selection
-        selection_start = max(0, min(start_char, len(line_text)))
-        selection_end = max(0, min(end_char, len(line_text)))
-        
-        # Add text before selection
-        if selection_start > 0:
-            new_line.append(line_text[:selection_start], style=COLORS.TEXT_NORMAL)
-        
-        # Add selected text with highlighting
-        if selection_end > selection_start:
-            new_line.append(line_text[selection_start:selection_end], style=COLORS.SELECTION_HIGHLIGHT)
-        
-        # Add text after selection
-        if selection_end < len(line_text):
-            new_line.append(line_text[selection_end:], style=COLORS.TEXT_NORMAL)
-            
-    elif line_index == start_line:
-        # First line of multi-line selection
-        selection_start = max(0, min(start_char, len(line_text)))
-        
-        # Add text before selection
-        if selection_start > 0:
-            new_line.append(line_text[:selection_start], style=COLORS.TEXT_NORMAL)
-        
-        # Add selected text from start_char to end of line
-        if selection_start < len(line_text):
-            new_line.append(line_text[selection_start:], style=COLORS.SELECTION_HIGHLIGHT)
-            
-    elif line_index == end_line:
-        # Last line of multi-line selection
-        selection_end = max(0, min(end_char, len(line_text)))
-        
-        # Add selected text from beginning to end_char
-        if selection_end > 0:
-            new_line.append(line_text[:selection_end], style=COLORS.SELECTION_HIGHLIGHT)
-        
-        # Add text after selection
-        if selection_end < len(line_text):
-            new_line.append(line_text[selection_end:], style=COLORS.TEXT_NORMAL)
-            
-    else:
-        # Middle line of multi-line selection - entire line is selected
-        new_line.append(line_text, style=COLORS.SELECTION_HIGHLIGHT)
-    
-    return new_line
-
-
-def _strip_rich_markup(text):
-    """Strip Rich markup tags from a string, returning plain visual text."""
-    return re.sub(r'\[/?[^\]]*\]', '', text)
-
 
 def _compute_subtitle_hitboxes(segments, width):
     total_plain = sum(len(t) for _, t in segments)
@@ -668,8 +587,7 @@ async def display_ui(reader):
                 reader.ui_chapter_idx, reader.ui_paragraph_idx, reader.ui_sentence_idx,
                 getattr(reader, 'ui_word_idx', 0),  # Add word index to trigger UI updates
                 rounded_scroll, reader.is_paused, int(progress_percent),
-                width, height, reader.auto_scroll_enabled, reader.selection_active,
-                reader.selection_start, reader.selection_end,
+                width, height, reader.auto_scroll_enabled,
                 # Add playback speed to trigger UI updates when speed changes
                 reader.playback_speed, getattr(reader, 'speed_reading_enabled', False), config.UI_MODE,
                 # Add recent menu state to trigger updates
@@ -905,50 +823,6 @@ def _get_highlightable_words(sentence: str) -> list[str]:
     words = [token for token in tokens if re.search(r'[a-zA-Z0-9]', token)]
     
     return words
-
-def _should_token_be_highlighted(token: str) -> bool:
-    """
-    Determine if a token should be highlighted as a word.
-    
-    Args:
-        token: The token to evaluate
-        
-    Returns:
-        True if token should be highlighted, False otherwise
-    """
-    return bool(re.search(r'[a-zA-Z0-9]', token))
-
-
-def _extract_core_word(token: str) -> str:
-    """
-    Extract the core word from a token by removing surrounding punctuation.
-    
-    This function is more robust than simple strip() as it handles nested
-    punctuation and preserves internal punctuation like contractions.
-    
-    Args:
-        token: The token to process
-        
-    Returns:
-        The core word without surrounding punctuation
-    """
-    if not token:
-        return token
-    
-    # Remove leading punctuation
-    start = 0
-    while start < len(token) and not token[start].isalnum():
-        start += 1
-    
-    # Remove trailing punctuation
-    end = len(token) - 1
-    while end >= start and not token[end].isalnum():
-        end -= 1
-    
-    if start <= end:
-        return token[start:end + 1]
-    else:
-        return ""
 
 def format_key_for_display(key):
     """Convert control characters to caret notation for UI display."""

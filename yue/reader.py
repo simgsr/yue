@@ -4,7 +4,6 @@ import asyncio
 import re
 import signal
 import logging
-import subprocess
 import termios
 import tty
 from rich.console import Console
@@ -263,13 +262,6 @@ class Yue:
         self.mouse_sequence_buffer = ''
         self.mouse_sequence_active = False
         self.resize_anchor = None
-        
-        # Text selection state
-        self.selection_active = False
-        self.selection_start = None
-        self.selection_end = None
-        self.selection_start_pos = None
-        self.selection_end_pos = None
         self.mouse_pressed = False
         self.mouse_press_pos = None
         
@@ -346,27 +338,6 @@ class Yue:
             return False
         except (IndexError, AttributeError, TypeError):
             return False
-    
-    def _is_paragraph_near_current_reading(self, direction):
-        """Check if navigating to the next/previous paragraph is near the current reading position."""
-        try:
-            current_chapter, current_paragraph, current_sentence = self.chapter_idx, self.paragraph_idx, self.sentence_idx
-            
-            if direction == 'next':
-                # If we're not at the beginning of the current paragraph, it's not near
-                if current_sentence > 0:
-                    return False
-                # If we're at the beginning of the current paragraph, next paragraph is near
-                return True
-            else:  # direction == 'prev'
-                # If we're not at the end of the current paragraph, it's not near
-                sentences_in_paragraph = len(self.chapters[current_chapter][current_paragraph].split('. '))
-                if current_sentence < sentences_in_paragraph - 1:
-                    return False
-                # If we're at the end of the current paragraph, previous paragraph is near
-                return True
-        except (IndexError, AttributeError, TypeError):
-            return False
 
     def _scroll_to_position(self, chapter_idx, paragraph_idx, sentence_idx, smooth=True):
         if not smooth and self._is_position_visible(chapter_idx, paragraph_idx, sentence_idx): return
@@ -441,25 +412,6 @@ class Yue:
                         if start_char <= char_pos_in_para <= end_char:
                             return (chap_idx, para_idx, sent_idx)
         return None
-
-    def _find_char_position_at_click(self, click_x, click_y):
-        """Find the exact character position at a click location."""
-        width, height = ui.get_terminal_size()
-        available_height = max(1, height - 4)
-        content_y, content_x = click_y - 3, click_x - 5
-        if not (0 <= content_y < available_height): 
-            return None
-        
-        clicked_line = int(self.scroll_offset) + content_y
-        if clicked_line >= len(self.document_lines): 
-            return None
-            
-        # Clamp content_x to the actual line length
-        if clicked_line < len(self.document_lines):
-            line_text = self.document_lines[clicked_line].plain
-            content_x = min(content_x, len(line_text))
-        
-        return (clicked_line, content_x)
 
     def _is_click_on_text(self, click_x, click_y):
         """Check if click is on the text area."""
@@ -584,124 +536,6 @@ class Yue:
             if start_x <= click_x <= end_x:
                 self.post_command(key)
                 return True
-        return False
-
-    def _is_click_in_selection(self, click_pos):
-        """Check if a click position is within the current selection."""
-        if not self.selection_active or not self.selection_start or not self.selection_end or not click_pos:
-            return False
-        
-        click_line, click_char = click_pos
-        start_line, start_char = self.selection_start
-        end_line, end_char = self.selection_end
-        
-        # Ensure start comes before end
-        if start_line > end_line or (start_line == end_line and start_char > end_char):
-            start_line, start_char, end_line, end_char = end_line, end_char, start_line, start_char
-        
-        # Check if click is within selection bounds
-        if start_line <= click_line <= end_line:
-            if start_line == end_line:
-                # Single line selection
-                return start_char <= click_char <= end_char
-            elif click_line == start_line:
-                # First line of multi-line selection
-                return click_char >= start_char
-            elif click_line == end_line:
-                # Last line of multi-line selection
-                return click_char <= end_char
-            else:
-                # Middle line of multi-line selection
-                return True
-        
-        return False
-
-    def _clear_selection(self):
-        """Clear the current text selection."""
-        self.selection_active = False
-        self.selection_start = None
-        self.selection_end = None
-        self.selection_start_pos = None
-        self.selection_end_pos = None
-
-    def _get_selected_text(self):
-        """Get the currently selected text as a string."""
-        if not self.selection_active or not self.selection_start or not self.selection_end:
-            return ""
-        
-        start_line, start_char = self.selection_start
-        end_line, end_char = self.selection_end
-        
-        # Ensure start comes before end
-        if start_line > end_line or (start_line == end_line and start_char > end_char):
-            start_line, start_char, end_line, end_char = end_line, end_char, start_line, start_char
-        
-        selected_text = []
-        
-        for line_idx in range(start_line, end_line + 1):
-            if line_idx >= len(self.document_lines):
-                break
-                
-            line_text = self.document_lines[line_idx].plain
-            
-            if start_line == end_line:
-                # Single line selection
-                selection_start = max(0, min(start_char, len(line_text)))
-                selection_end = max(0, min(end_char, len(line_text)))
-                selected_text.append(line_text[selection_start:selection_end])
-            elif line_idx == start_line:
-                # First line of multi-line selection
-                selection_start = max(0, min(start_char, len(line_text)))
-                selected_text.append(line_text[selection_start:])
-            elif line_idx == end_line:
-                # Last line of multi-line selection
-                selection_end = max(0, min(end_char, len(line_text)))
-                selected_text.append(line_text[:selection_end])
-            else:
-                # Middle line of multi-line selection
-                selected_text.append(line_text)
-        
-        # Join all lines with spaces instead of newlines
-        raw_text = " ".join(selected_text)
-        
-        # Clean up the text: replace multiple spaces with single spaces
-        # This handles cases like "  ", "   ", "    ", etc.
-        cleaned_text = re.sub(r' {2,}', ' ', raw_text)
-        
-        # Remove any remaining newlines (just in case)
-        cleaned_text = cleaned_text.replace('\n', ' ')
-        
-        # Clean up any double spaces that might have been created
-        cleaned_text = re.sub(r' {2,}', ' ', cleaned_text)
-        
-        # Strip leading/trailing whitespace
-        return cleaned_text.strip()
-
-    def _copy_to_clipboard(self, text):
-        """Copy text to system clipboard using pbcopy on macOS."""
-        if not text:
-            return False
-            
-        try:
-            # Use pbcopy on macOS to copy to clipboard
-            process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE, text=True)
-            process.communicate(input=text)
-            return process.returncode == 0
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return False
-
-    def _handle_copy_selection(self):
-        """Handle copying selected text to clipboard."""
-        if not self.selection_active:
-            return False
-            
-        selected_text = self._get_selected_text()
-        if selected_text:
-            success = self._copy_to_clipboard(selected_text)
-            if success:
-                # Clear selection after successful copy
-                self._clear_selection()
-            return success
         return False
 
     def _increase_speed(self):
@@ -1792,8 +1626,6 @@ class Yue:
                     self._handle_move_to_end_smooth()
                 else:
                     self._handle_move_to_end_immediate()
-            elif cmd == 'copy_selection':
-                self._handle_copy_selection()
             elif cmd == 'increase_speed':
                 if self._increase_speed():
                     # Force immediate UI update to show new speed
