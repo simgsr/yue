@@ -10,6 +10,7 @@ The module is intentionally dependency-free (stdlib only) so it can run both
 from the CLI startup prompt and from anywhere in the reader.
 """
 
+import hashlib
 import os
 import zipfile
 from xml.sax.saxutils import escape
@@ -99,7 +100,7 @@ def _build_opf(title, chapter_count):
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId" version="2.0">\n'
         "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\n"
-        f'<dc:identifier id="BookId">urn:uuid:yue-{chapter_count}-{abs(hash(escaped_title))}</dc:identifier>\n'
+        f'<dc:identifier id="BookId">urn:uuid:yue-{chapter_count}-{hashlib.md5(escaped_title.encode("utf-8")).hexdigest()[:12]}</dc:identifier>\n'
         f"<dc:title>{escaped_title}</dc:title>\n"
         '<dc:language>en</dc:language>\n'
         '<meta name="generator" content="Yue ebook reader"/>\n'
