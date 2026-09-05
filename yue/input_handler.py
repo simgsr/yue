@@ -17,7 +17,11 @@ DEFAULT_KEYBOARD_SHORTCUTS = {
         "decrease_speed": ",",
         "increase_speed": "."
     },
-    "display_controls": {},
+    "display_controls": {
+        "cycle_ui_complexity": "v",
+        "toggle_sentence_highlight": "s",
+        "toggle_word_highlight": "w"
+    },
     "application": {
         "quit": "q",
         "select_menu_item": "\n"
@@ -148,6 +152,7 @@ def _process_normal_key(reader, data):
     """Process a standard non-escape key press."""
     nav_shortcuts = KEYBOARD_SHORTCUTS.get("navigation", {})
     tts_shortcuts = KEYBOARD_SHORTCUTS.get("tts_controls", {})
+    display_shortcuts = KEYBOARD_SHORTCUTS.get("display_controls", {})
     app_shortcuts = KEYBOARD_SHORTCUTS.get("application", {})
 
     if _matches_shortcut(data, app_shortcuts.get("quit", "q")):
@@ -173,6 +178,12 @@ def _process_normal_key(reader, data):
         cmd = 'decrease_speed'
     elif _matches_shortcut(data, tts_shortcuts.get("increase_speed", ".")):
         cmd = 'increase_speed'
+    elif _matches_shortcut(data, display_shortcuts.get("cycle_ui_complexity", "v")):
+        cmd = 'cycle_ui_complexity'
+    elif _matches_shortcut(data, display_shortcuts.get("toggle_sentence_highlight", "s")):
+        cmd = 'toggle_sentence_highlight'
+    elif _matches_shortcut(data, display_shortcuts.get("toggle_word_highlight", "w")):
+        cmd = 'toggle_word_highlight'
 
     if cmd:
         reader.post_command(cmd)

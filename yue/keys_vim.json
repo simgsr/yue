@@ -7,11 +7,13 @@
   "tts_controls": {
     "play_pause": " ",
     "decrease_speed": ",",
-    "increase_speed": ".",
-    "decrease_temperature": "c",
-    "increase_temperature": "w"
+    "increase_speed": "."
   },
-  "display_controls": {},
+  "display_controls": {
+    "cycle_ui_complexity": "v",
+    "toggle_sentence_highlight": "s",
+    "toggle_word_highlight": "w"
+  },
   "application": {
     "quit": "q",
     "select_menu_item": "\n"
