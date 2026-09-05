@@ -9,11 +9,6 @@ from rich.console import Console
 from .base import TTSBase
 from .. import config
 
-warnings.filterwarnings("ignore")
-os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
-os.environ["HF_HUB_ETAG_TIMEOUT"] = "10"
-os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "10"
-
 
 class KokoroTTS(TTSBase):
     """TTS implementation for Kokoro TTS."""
@@ -70,6 +65,13 @@ class KokoroTTS(TTSBase):
 
     async def initialize(self) -> bool:
         """Initializes the Kokoro TTS pipeline asynchronously."""
+        # Set before huggingface_hub is imported so model downloads are quiet
+        # and bounded; kept here (not at module import) so merely importing the
+        # backend has no side effects.
+        warnings.filterwarnings("ignore")
+        os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+        os.environ["HF_HUB_ETAG_TIMEOUT"] = "10"
+        os.environ["HF_HUB_DOWNLOAD_TIMEOUT"] = "10"
         try:
             import numpy
             import soundfile as sf
@@ -231,32 +233,11 @@ class KokoroTTS(TTSBase):
         """
         Generate audio with timing using the centralized timing calculator.
 
-        This method leverages Kokoro TTS's token-level timing information
-        through get_raw_timing_data() and processes it with the timing calculator.
+        Kokoro's get_raw_timing_data() writes the audio as a side effect, so
+        this override skips the separate generate_audio() call.
         """
-        # Get raw timing data (which also generates the audio)
         raw_timings = await self.get_raw_timing_data(text, output_path)
-
-        # Get actual audio duration
-        try:
-            from .. import audio
-        except ImportError:
-            import sys
-            import os
-            sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-            import audio
-        duration = await audio.get_audio_duration(output_path)
-
-        # Process timing data using the centralized calculator
-        try:
-            from ..timing_calculator import process_tts_timing_data
-        except ImportError:
-            import sys
-            import os
-            sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-            import timing_calculator
-            process_tts_timing_data = timing_calculator.process_tts_timing_data
-        return process_tts_timing_data(text, raw_timings, duration)
+        return await self._finalize_timing_data(text, raw_timings, output_path)
 
     async def generate_audio(self, text: str, output_path: str):
         """Generates audio from text using Kokoro in a separate thread."""

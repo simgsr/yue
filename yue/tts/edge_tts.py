@@ -77,33 +77,12 @@ class EdgeTTS(TTSBase):
     async def generate_audio_with_timing(self, text: str, output_path: str):
         """
         Generate audio with timing using the centralized timing calculator.
-        
-        This method leverages Edge TTS's precise word boundary information
-        through get_raw_timing_data() and processes it with the timing calculator.
+
+        Edge's get_raw_timing_data() streams and saves the audio as a side
+        effect, so this override skips the separate generate_audio() call.
         """
-        # Get raw timing data (which also generates the audio)
         raw_timings = await self.get_raw_timing_data(text, output_path)
-        
-        # Get actual audio duration
-        try:
-            from .. import audio
-        except ImportError:
-            import sys
-            import os
-            sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-            import audio
-        duration = await audio.get_audio_duration(output_path)
-        
-        # Process timing data using the centralized calculator
-        try:
-            from ..timing_calculator import process_tts_timing_data
-        except ImportError:
-            import sys
-            import os
-            sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-            import timing_calculator
-            process_tts_timing_data = timing_calculator.process_tts_timing_data
-        return process_tts_timing_data(text, raw_timings, duration)
+        return await self._finalize_timing_data(text, raw_timings, output_path)
 
     async def generate_audio(self, text: str, output_path: str):
         """Generates audio from text using edge-tts and saves it to a file."""

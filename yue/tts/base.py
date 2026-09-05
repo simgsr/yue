@@ -104,31 +104,17 @@ class TTSBase(ABC):
         """
         # Generate audio first
         await self.generate_audio(text, output_path)
-        
+
         # Get raw timing data from the TTS implementation
         raw_timings = await self.get_raw_timing_data(text, output_path)
-        
-        # Get actual audio duration
-        try:
-            from .. import audio
-        except ImportError:
-            # Handle case when running tests or imports from different context
-            import sys
-            import os
-            sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-            import audio
+        return await self._finalize_timing_data(text, raw_timings, output_path)
+
+    async def _finalize_timing_data(self, text: str, raw_timings, output_path: str):
+        """Measure the generated audio and process raw timings into the
+        word-mapped format the reader's highlight sync expects."""
+        from .. import audio
+        from ..timing_calculator import process_tts_timing_data
         duration = await audio.get_audio_duration(output_path)
-        
-        # Process timing data using the centralized calculator
-        try:
-            from ..timing_calculator import process_tts_timing_data
-        except ImportError:
-            # Handle case when running tests or imports from different context
-            import sys
-            import os
-            sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-            import timing_calculator
-            process_tts_timing_data = timing_calculator.process_tts_timing_data
         return process_tts_timing_data(text, raw_timings, duration)
 
     async def get_raw_timing_data(self, text: str, output_path: str):
