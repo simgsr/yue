@@ -105,12 +105,16 @@ sudo apt install espeak
 git clone https://github.com/simgsr/yue.git
 cd yue
 
-# 2. Install dependencies
-pip install -r requirements.txt
+# 2. Install the pinned dependency set (reproducible)
+pip install -r requirements.lock
 
 # 3. Install Yue
 pip install .
 ```
+
+`requirements.lock` pins the exact tested dependency versions. To refresh it
+after changing `requirements.txt`, regenerate it with
+[uv](https://docs.astral.sh/uv/): `uv pip compile requirements.txt -o requirements.lock`.
 
 #### Enable Kokoro TTS (Optional)
 
@@ -206,7 +210,8 @@ yue -m 3 path/to/your/book.epub
 | `←`                                     | Move to the beginning of the current chapter (press again for the previous chapter)            |
 | `y` / `b`                               | Jump directly to the beginning or end of the document for quick navigation                     |
 | `,` / `.`                               | Decrease or increase text-to-speech playback speed (1x to 3x)                                  |
-| `c` / `w`                               | Decrease or increase the TTS voice temperature (calmer vs. more expressive)                    |
+| `v`                                     | Cycle through the four UI complexity modes (minimal, medium, full, speed reading)              |
+| `w` / `s`                               | Cycle through word highlighting modes / toggle sentence highlighting                           |
 
 </div>
 
