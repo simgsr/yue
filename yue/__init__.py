@@ -10,6 +10,6 @@ contributors. Distributed under GPL-3.0-or-later, the same license as the
 original; see LICENSE.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.5.1"
 __author__ = "Yue contributors"
 __credits__ = ["Yue contributors", "Lue contributors (original Lue reader)"]
